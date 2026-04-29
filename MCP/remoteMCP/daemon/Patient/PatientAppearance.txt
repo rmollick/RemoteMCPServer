@@ -1,0 +1,8 @@
+PatientSkinColor = "fair"
+PatientHairColor = "dark brown"
+PatientHairStyle = "short, wavy"
+PatientFacialHair = "None"
+PatientClothing = "grey hoodie"
+PatientAge = "40s"
+PatientGender = "Male"
+PatientEyeColor = "Brown"

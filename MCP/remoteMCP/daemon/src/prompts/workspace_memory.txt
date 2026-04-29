@@ -1,0 +1,259 @@
+This is the StreamingAssets folder for a Unity-based nursing training simulation project.  The Scenario folder contains scenario script files written in the Cerebrum language.  The Cerebrum language is a loosely typed language described in the document Docs/CerebrumProgrammingGuide.doc.  It is designed to be a modular language so new capabilities can be added without rebuilding the Unity project.  Cerebrum controls the logic of the simulation scenario, and commands in the language can be extended by adding new files which act as functions, such as GivePatientCup.txt adding a new functionality to hand the patient a cup.  Variable names begin with a $ which can be omitted in places where a variable is expected.  Each file name together with the file path is the name of the function that can be called with the Cerebrum language’s Do command (such as the command Do ‘Action/GivePatientCup’ , and the directory structure groups commands by purpose.   Most commands are in a noun-verb-modifier format which corresponds to the Unity game object, the action that object is performing, and optional parameters that action is acting on.  Unity game objects can have MessageHandlers written in C# which allow GameObjects to understand Cerebrum actions, such as the nurse knowing the actions grabLeft and grabRight in the following Cerebrum code:
+$PlayerNurse = 'Player/NursePlayer’      #Unity object name
+$Grab = 'grab' + ActiveHand		#action is either grabLeft or grabRight
+$PlayerNurse $Grab $Item 1 'grip' 'default'    #have nurse grab the item with chosen hand and default grip type
+Originally the language supported branching with a Goto command which would branch to a line number or Label, but now the language supports the preferred While-Do-Endwhile or WaitFor loops.  Commands must appear on separate file lines, and conditional statements must appear on their own line following If or While statements rather than in parentheses like many other languages.  Also, spaces are used to separate parameters rather than commas.  
+
+
+
+If [INPUT_INCLUDES_IMAGE] is present, you MUST analyze the image first and extract structured observations.
+Then generate or modify Cerebrum scenario scripts and related files based on those observations.
+Do not ignore the image.
+
+
+
+make all the changes on 
+NEWS_Nurse\Stage1\MCPPatient1.txt
+
+//////
+# CEREBRUM PATIENT APPEARANCE SYSTEM - MODULAR ARCHITECTURE
+
+## OVERVIEW
+This project uses a modular appearance system for patient avatars in Cerebrum scripting language. Patient appearance is controlled through six core Set***.txt helper scripts that read global variables and automatically load appropriate avatar assets.
+
+## CORE ARCHITECTURE
+
+### File Locations
+- **Helper Scripts**: `/Assets/StreamingAssets/Scenarios/Set*.txt`
+- **Asset Files**: `/Assets/StreamingAssets/Scenarios/PatientCreations/`
+- **Patient Scripts**: `/Assets/StreamingAssets/Scenarios/NEWS_Nurse/Stage1/MCPPatient*.txt`
+
+### System Flow
+1. Patient script sets appearance variables ($AgeInYears, $HeadAmount, etc.)
+2. Patient script calls helper scripts (Do 'SetAge.txt', Do 'SetGender.txt', etc.)
+3. Helper scripts read variables and load appropriate asset files
+4. Final appearance is composite of all loaded assets
+
+## HELPER SCRIPTS REFERENCE
+
+### 1. SetAge.txt
+**Purpose**: Maps patient age to age-appropriate avatar appearance (skin texture, base hair color, wrinkles)
+**Input Variable**: `$AgeInYears` (number, 0-100+)
+**Available Avatars**: 45, 46, 60, 75, 76, 80
+
+**Mapping Logic**:
+Age 0-45 → Avatar 45 (young adult: smooth skin, dark hair, full coverage) Age 46-59 → Avatar 46 (middle-aged: some wrinkles, graying hair) Age 60-74 → Avatar 60 (senior: moderate wrinkles, gray/white hair) Age 75 → Avatar 75 (elderly: deep wrinkles, white hair) Age 76-79 → Avatar 76 (elderly: aged skin, sparse white hair) Age 80+ → Avatar 80 (very elderly: aged skin with spots, very sparse/bald)
+
+
+**Usage**:
+```cerebrum
+$AgeInYears = 65
+Do 'SetAge.txt'
+# Loads: PatientCreations/Age/60.txt
+2. SetHead.txt
+Purpose: Maps head/hair style variation based on hair density/graying amount Input Variable: $HeadAmount (number, 0-100) Available Heads: Head0, Head1, Head2, Head3
+
+Mapping Logic:
+
+$HeadAmount 0-39   → Head0 (round face, full hair coverage)
+$HeadAmount 40-64  → Head1 (oval face, moderate hair)
+$HeadAmount 65-89  → Head2 (angular face, receding hairline)
+$HeadAmount 90+    → Head3 (thin face, bald/very sparse hair)
+Usage:
+
+$HeadAmount = 80.0
+Do 'SetHead.txt'
+# Loads: PatientCreations/Head/Head2.txt (receding hairline)
+3. SetWeight.txt
+Purpose: Maps patient body build/weight category Input Variable: $WeightAmount (number, 0-100+) Available Categories: Skinny, Average, Obese
+
+Mapping Logic:
+
+$WeightAmount 0-44   → Skinny  (frail, underweight, thin build)
+$WeightAmount 45-84  → Average (normal healthy weight)
+$WeightAmount 85+    → Obese   (overweight, heavy build)
+Usage:
+
+$WeightAmount = 50.0
+Do 'SetWeight.txt'
+# Loads: PatientCreations/Weight/Average.txt
+4. SetHeight.txt
+Purpose: Maps patient height Input Variable: $HeightValue (number, cm or inches) Available Heights: Short, Average, Tall
+
+Mapping Logic (in cm):
+
+$HeightValue 0-164   → Short   (~5'2"-5'5")
+$HeightValue 165-182 → Average (~5'5"-6'0")
+$HeightValue 183+    → Tall    (~6'0"+)
+Usage:
+
+$HeightValue = 170
+Do 'SetHeight.txt'
+# Loads: PatientCreations/Height/Average.txt
+5. SetGender.txt
+Purpose: Sets male or female avatar body shape and features Input Variable: $Patient.Gender (string, 'Male' or 'Female') Available Options: Male, Female
+
+Mapping Logic:
+
+$Patient.Gender == 'Male'   → Loads Gender/Male.txt
+$Patient.Gender == 'Female' → Loads Gender/Female.txt
+Default: 'Male' if empty
+Usage:
+
+$Patient.Gender = 'Male'
+Do 'SetGender.txt'
+# Loads: PatientCreations/Gender/Male.txt
+6. SetExpression.txt
+Purpose: Sets patient facial expression Input Variable: $PatientExpression (string) Available Expressions: Smile, Frown, Dimple
+
+Mapping Logic:
+
+$PatientExpression == 'Smile'  → Happy/content expression
+$PatientExpression == 'Frown'  → Worried/distress/pain expression
+$PatientExpression == 'Dimple' → Subtle smile expression
+Default: 'Smile' if empty
+Usage:
+
+$PatientExpression = 'Frown'
+Do 'SetExpression.txt'
+# Loads: PatientCreations/Expressions/Frown.txt
+PATIENT CREATION TEMPLATE
+Standard MCPPatient Structure
+Do 'Actions/Setup.txt'
+
+# Patient Info
+$Patient.Name = 'Patient Name'
+$Patient.IC = 'S1234567A'
+$BloodType = 'O+'
+$Patient.Diagnosis = 'Condition'
+$PatientType = 'MCP'
+$PatientModel = 'uAvatar'
+
+# Appearance Parameters
+$AgeInYears = 65
+$Patient.Gender = 'Male'
+$HeadAmount = 70.0
+$WeightAmount = 60.0
+$HeightValue = 170
+$PatientExpression = 'Frown'
+
+# Vital Signs
+$Temperature = 36.8
+$HR = 70
+$BP = '120/80'
+$Respiration = 16
+$SpO2 = 98
+
+# Setup Model
+$PatientObjName = 'PatientMCP_B' + BedNumber
+Create $PatientModel $PatientObjName
+$PatientObjName align $Patient 0
+$Patient = PatientObjName
+$RigType = 'uAvatar'
+Do 'Rigs/RigExtras.txt'
+Do 'NEWS_Nurse/SetupPatient.txt'
+
+# Apply Appearance (Order matters!)
+Do 'SetAge.txt'
+Do 'SetGender.txt'
+Do 'SetHead.txt'
+Do 'SetHeight.txt'
+Do 'SetWeight.txt'
+Do 'SetExpression.txt'
+PRESET PATIENT ARCHETYPES
+Young Adult (20-45 years)
+$AgeInYears = 35
+$HeadAmount = 20.0      # Full hair
+$WeightAmount = 60.0    # Normal weight
+$HeightValue = 175      # Average height
+$PatientExpression = 'Smile'
+Middle-Aged (46-60 years)
+$AgeInYears = 52
+$HeadAmount = 60.0      # Receding/graying
+$WeightAmount = 75.0    # Slightly overweight
+$HeightValue = 170      # Average
+$PatientExpression = 'Frown'
+Senior (61-75 years)
+$AgeInYears = 68
+$HeadAmount = 80.0      # Thinning gray/white
+$WeightAmount = 50.0    # Average/thin
+$HeightValue = 165      # Shorter
+$PatientExpression = 'Frown'
+Elderly Frail (76+ years)
+$AgeInYears = 82
+$HeadAmount = 95.0      # Bald/very sparse
+$WeightAmount = 25.0    # Frail/underweight
+$HeightValue = 160      # Short
+$PatientExpression = 'Frown'
+CEREBRUM SCRIPTING RULES
+Variable Scope
+All variables are GLOBAL in Cerebrum
+Variables set in one script are accessible in called scripts
+No parameter passing needed - just set variables before calling Do
+Conditional Syntax
+If
+    ($Variable >= 50) && ($Variable < 80)
+Then
+    # Actions
+Endif
+Script Execution
+Do 'ScriptPath.txt'           # Execute script
+$Path = 'Dynamic/' + $Value + '.txt'
+Do $Path                       # Dynamic path execution
+Common Commands
+Do 'path/script.txt' - Execute script
+Create $Model $Name - Create avatar object
+Prompt 'message' - Display in-game message
+Print 'message' - Log to Unity console
+Wait 2 - Wait N seconds
+TROUBLESHOOTING
+Issue: Patient doesn't appear correctly
+Check all 6 Set scripts are called in correct order
+Verify variable values are in valid ranges
+Ensure Set***.txt files exist in /Scenarios/
+Issue: Wrong appearance loaded
+Check variable values before Do calls
+Use Prompt to debug: Prompt 'Age: ' + $AgeInYears
+Verify conditional logic in Set scripts uses && for ranges
+Issue: Missing assets
+Verify PatientCreations/ folder structure
+Check file names match exactly (case-sensitive)
+Ensure Age/45-80.txt files exist
+KEY PRINCIPLES
+Modularity: Each Set script handles ONE aspect of appearance
+Order Matters: Call Set scripts AFTER model creation, in logical order
+Variables First: Set all appearance variables BEFORE calling Set scripts
+Global Scope: Variables persist across all script calls
+Conditional Logic: Use && for range checks, exact comparisons for strings
+Dynamic Paths: Can build paths with string concatenation
+QUICK REFERENCE CARD
+Aspect	Variable	Type	Range	Script
+Age	$AgeInYears	Number	0-100+	SetAge.txt
+Hair	$HeadAmount	Number	0-100	SetHead.txt
+Weight	$WeightAmount	Number	0-100+	SetWeight.txt
+Height	$HeightValue	Number	150-200 cm	SetHeight.txt
+Gender	$Patient.Gender	String	'Male'/'Female'	SetGender.txt
+Expression	$PatientExpression	String	'Smile'/'Frown'/'Dimple'	SetExpression.txt
+Version: 1.0
+Last Updated: 2024
+Maintained By: Cerebrum Medical Simulation Project
+
+
+---
+
+## 💡 How to Use This Prompt
+
+Save this as your **workspace_memory** or **system prompt** for your MCP. Your MCP will now understand:
+
+✅ The complete modular appearance system  
+✅ All six Set***.txt helper scripts and their logic  
+✅ Variable ranges and mappings  
+✅ How to create new patient scripts  
+✅ Cerebrum scripting syntax and rules  
+✅ Common troubleshooting steps  
+✅ Quick reference for all parameters  
+
+Your MCP can now help you create, modify, and debug patient appearance scripts! 🎯
+
+
+/////////

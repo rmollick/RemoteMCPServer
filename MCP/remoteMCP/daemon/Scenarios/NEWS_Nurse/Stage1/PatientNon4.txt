@@ -1,0 +1,2 @@
+##### mcp tests/MCPStTest/CerebrumProject_Data/StreamingAssets/Scenarios/NEWS_Nurse/Stage1/PatientNon4.txt
+$patientage = 20

@@ -1,0 +1,314 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Cerebrum Agent-lite (Gemini Agent)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: ui-sans-serif, system-ui; margin: 0; }
+    .app { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+    .sidebar { border-right: 1px solid #ddd; padding: 12px; overflow: auto; }
+    .main { display: grid; grid-template-rows: 1fr auto; }
+    .chat { padding: 12px; overflow: auto; }
+    .composer { border-top: 1px solid #ddd; padding: 12px; display: flex; gap: 8px; }
+    textarea { width: 100%; height: 90px; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .btn { padding: 8px 10px; border: 1px solid #bbb; background: #f7f7f7; cursor: pointer; }
+    .file { cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+    .file:hover { background: #f2f2f2; }
+    .file.selected { background: #e8f0ff; border: 1px solid #c9dbff; }
+    .muted { color: #666; font-size: 12px; }
+    pre { white-space: pre-wrap; }
+    .msg { margin: 10px 0; }
+    .msg .role { font-weight: 700; }
+    .log { background: #111; color: #ddd; padding: 8px; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="sidebar">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div><b>Workspace</b></div>
+          <div id="root" class="muted"></div>
+          <hr />
+
+          <div><b>Image input</b></div>
+
+          <div style="margin-top:6px;">Upload</div>
+          <input type="file" id="imageUpload" accept="image/*" />
+
+          <div style="margin-top:10px;">Webcam</div>
+          <video id="cam" autoplay playsinline style="width:220px; border:1px solid #ddd; border-radius:10px; background:#000;"></video>
+          <canvas id="snap" style="display:none;"></canvas>
+
+          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+            
+            <button id="camStart">Start Cam</button>
+            <button id="camStop">Stop Cam</button>
+            <br>
+            <button id="camShot">Take Snapshot</button>
+            <button id="imgClear">Clear</button>
+          </div>
+
+          <div style="margin-top:8px; font-size:12px; opacity:.7;">Selected image:</div>
+          <div id="imgStatus" style="font-size:12px; opacity:.7;">(none)</div>
+          <img id="imgPreview" style="margin-top:6px; width:220px; border:1px solid #ddd; border-radius:10px; display:none;" />
+        </div>
+
+        <button class="btn" id="refresh">Refresh</button>
+      </div>
+
+      <div style="display:flex; gap:8px; margin:8px 0;">
+        <button id="btnUp">Up</button>
+        <button id="btnBack">Back</button>
+        <div style="font-size:12px; opacity:.7; align-self:center;" id="pathLabel"></div>
+      </div>
+
+      <hr />
+      <div class="muted">Files</div>
+      <div id="files"></div>
+
+      <hr />
+      <div class="muted">Selected file</div>
+      <div id="selected" class="muted">(none)</div>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn" id="openFile">Open</button>
+      </div>
+
+      <hr />
+      <div class="muted">Live events</div>
+      <div id="events" class="log"></div>
+    </div>
+
+    <div class="main">
+      <div class="chat" id="chat"></div>
+
+        <button id="btnMic">🎙 Start Voice</button>
+<button id="btnMicStop" disabled>⏹ Stop</button>
+<span id="micStatus" style="margin-left:8px;color:#666;"></span>
+
+      <div class="composer">
+        <textarea id="prompt" placeholder="Describe what you want. Example: Create a new Cerebrum scenario file in StreamingAssets/Scenario/ named test01.txt with a simple nurse grab action..."></textarea>
+        <div style="display:flex; flex-direction:column; gap:8px; width:180px;">
+          <button class="btn" id="run">Run Agent</button>
+          <button class="btn" id="clear">Clear Chat</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const chatEl = document.getElementById("chat");
+  const filesEl = document.getElementById("files");
+  const eventsEl = document.getElementById("events");
+  const rootEl = document.getElementById("root");
+  const selectedEl = document.getElementById("selected");
+  const promptEl = document.getElementById("prompt");
+  const pathLabel = document.getElementById("pathLabel");
+
+  let selectedPath = null;
+
+  // -----------------------------
+  // Navigation state (single source of truth)
+  // -----------------------------
+  let currentPath = "";       // "" means workspace root
+  const navHistory = [];      // back stack
+
+  function setPathLabel() {
+    pathLabel.textContent = currentPath ? `/${currentPath}` : "/";
+  }
+
+  function setSelectedPath(p, rowEl) {
+    selectedPath = p;
+    selectedEl.textContent = selectedPath || "(none)";
+
+    // highlight selection
+    document.querySelectorAll("#files .file.selected").forEach(x => x.classList.remove("selected"));
+    if (rowEl) rowEl.classList.add("selected");
+  }
+
+  async function loadList(relPath = "") {
+    const r = await fetch("/api/list?path=" + encodeURIComponent(relPath));
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || "Failed to list");
+
+    currentPath = j.path || "";
+    setPathLabel();
+
+    filesEl.innerHTML = "";
+
+    (j.entries || []).forEach(e => {
+      const div = document.createElement("div");
+      div.className = "file";
+      div.textContent = e.name + (e.type === "dir" ? "/" : "");
+
+      div.onclick = () => {
+        if (e.type === "dir") {
+          goToPath(e.path);
+        } else {
+          setSelectedPath(e.path, div);
+        }
+      };
+
+      filesEl.appendChild(div);
+    });
+  }
+
+  function goToPath(p) {
+    if (p === currentPath) return;
+    navHistory.push(currentPath);
+    loadList(p).catch(err => console.error(err));
+  }
+
+  document.getElementById("btnUp").onclick = () => {
+    if (!currentPath) return;
+    const parts = currentPath.split("/").filter(Boolean);
+    parts.pop();
+    goToPath(parts.join("/"));
+  };
+
+  document.getElementById("btnBack").onclick = () => {
+    if (!navHistory.length) return;
+    const prev = navHistory.pop() || "";
+    loadList(prev).catch(err => console.error(err));
+  };
+
+  // -----------------------------
+  // Image upload + webcam
+  // -----------------------------
+  const imageUploadEl = document.getElementById("imageUpload");
+  const camEl = document.getElementById("cam");
+  const snapCanvas = document.getElementById("snap");
+  const imgPreview = document.getElementById("imgPreview");
+  const imgStatus = document.getElementById("imgStatus");
+
+  let selectedImage = null; // { mimeType, dataBase64 }
+  let camStream = null;
+
+  function setSelectedImage(mimeType, dataBase64, label) {
+    selectedImage = { mimeType, dataBase64 };
+    imgStatus.textContent = label || `${mimeType} (${Math.round(dataBase64.length / 1024)} KB base64)`;
+    imgPreview.src = `data:${mimeType};base64,${dataBase64}`;
+    imgPreview.style.display = "block";
+  }
+
+  function clearSelectedImage() {
+    selectedImage = null;
+    imgStatus.textContent = "(none)";
+    imgPreview.style.display = "none";
+    imgPreview.src = "";
+    imageUploadEl.value = "";
+  }
+
+  imageUploadEl.addEventListener("change", async () => {
+    const f = imageUploadEl.files?.[0];
+    if (!f) return;
+    const buf = await f.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const b64 = btoa(binary);
+    setSelectedImage(f.type || "image/png", b64, `Uploaded: ${f.name}`);
+  });
+
+  document.getElementById("camStart").onclick = async () => {
+    if (camStream) return;
+    camStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    camEl.srcObject = camStream;
+  };
+
+  document.getElementById("camShot").onclick = () => {
+    if (!camStream) return;
+    const ctx = snapCanvas.getContext("2d");
+    snapCanvas.width = camEl.videoWidth || 640;
+    snapCanvas.height = camEl.videoHeight || 480;
+    ctx.drawImage(camEl, 0, 0, snapCanvas.width, snapCanvas.height);
+    const dataUrl = snapCanvas.toDataURL("image/png");
+    const b64 = dataUrl.split(",")[1];
+    setSelectedImage("image/png", b64, "Snapshot (webcam)");
+  };
+
+  document.getElementById("camStop").onclick = () => {
+    if (camStream) {
+      for (const t of camStream.getTracks()) t.stop();
+      camStream = null;
+    }
+    camEl.srcObject = null;
+  };
+
+  document.getElementById("imgClear").onclick = () => clearSelectedImage();
+
+  // -----------------------------
+  // Chat helpers
+  // -----------------------------
+  function addMsg(role, text) {
+    const div = document.createElement("div");
+    div.className = "msg";
+    div.innerHTML = `<div class="role">${role}</div><pre>${escapeHtml(text)}</pre>`;
+    chatEl.appendChild(div);
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  function escapeHtml(s) {
+    return s.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+  }
+
+  // -----------------------------
+  // API calls
+  // -----------------------------
+  async function loadRoot() {
+    const r = await fetch("/api/root");
+    const j = await r.json();
+    rootEl.textContent = j.root;
+  }
+
+  async function openSelectedFile() {
+    if (!selectedPath) return;
+    const r = await fetch("/api/read?path=" + encodeURIComponent(selectedPath));
+    const j = await r.json();
+    addMsg("FILE", `=== ${selectedPath} ===\n` + (j.content || ""));
+  }
+
+  async function runAgent() {
+    const prompt = promptEl.value.trim();
+    if (!prompt) return;
+
+    addMsg("YOU", prompt);
+
+    const r = await fetch("/api/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        selectedPath,
+        image: selectedImage
+      })
+    });
+
+    const j = await r.json();
+    addMsg("AGENT", j.output || JSON.stringify(j, null, 2));
+  }
+
+  // WebSocket events
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = (ev) => {
+    const line = ev.data;
+    eventsEl.textContent = (eventsEl.textContent + "\n" + line).slice(-3000);
+    eventsEl.scrollTop = eventsEl.scrollHeight;
+  };
+
+  
+  document.getElementById("refresh").onclick = () => loadList(currentPath);
+  document.getElementById("openFile").onclick = openSelectedFile;
+  document.getElementById("run").onclick = runAgent;
+  document.getElementById("clear").onclick = () => { chatEl.innerHTML = ""; };
+
+  (async function init(){
+    await loadRoot();
+    await loadList("");
+    setPathLabel();
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+$Patient = 'PatientObject'  # Replace with the actual patient object name
+
+Do $Patient SetHairColor Dark
+Do $Patient SetHairStyle MaleShortDark
+Do $Patient SetClothing GreyHoodie
+Do $Patient SetGender Male

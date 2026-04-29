@@ -1,0 +1,32 @@
+# Scenario: Administer Cardiac Medications to a Patient with Dementia
+# Patient: Miles Johnson, 87 years old
+# Medical History: Dementia, Hypertension, Atrial Fibrillation, Chronic Renal Failure, Hip Fracture
+# Goal: Administer cardiac medications safely while communicating therapeutically
+
+# Initialize patient information
+$PatientName = "Miles Johnson"
+$PatientAge = 87
+$PatientCondition = "Dementia, Hypertension, Atrial Fibrillation, Chronic Renal Failure, Hip Fracture"
+
+# Set the scene
+Do 'Environment/SetRoom' 'ShadyAcresRehabilitation'
+Do 'Character/CreatePatient' $PatientName $PatientAge $PatientCondition
+$Patient = 'Characters/' + $PatientName #sets patient reference for later use
+
+#Initial patient assessment
+Do 'Action/AssessPatient' $Patient # Placeholder for assessment actions
+
+# Administer medication
+Do 'Medication/PrepareMedication' 'CardiacMedication'
+Do 'Action/GiveMedication' $Patient 'CardiacMedication'
+
+#Therapeutic communication
+Do 'Dialogue/StartConversation' $Patient 'Introduction' #Example, needs a conversation tree set elsewhere
+Do 'Dialogue/CheckPatientComfort' $Patient #Example, needs a way to assess/respond to patient comfort
+
+#Post-medication assessment
+Do 'Action/AssessPatient' $Patient # Placeholder for assessment actions
+Do 'Action/MonitorPatientResponse' $Patient #Placeholder
+
+# Scenario end
+Do 'Scenario/EndScenario'
