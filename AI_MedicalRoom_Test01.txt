@@ -1,0 +1,21 @@
+Room	0	RoomMedExam_base
+Bed	1	PatientBed01	Patient	1	PatientTemp
+Wall	1	Poster02
+BedsideHead	1	RackInfusionBottle01	InfusionBottle	1	InfusionBottleLiquid	1	InfusionBottleLiquid03	InfusionBottle	2	InfusionBottleLiquid	2	InfusionBottleLiquid03
+BedsideMid	1	RackInfusionBag02	InfusionBag	1	InfusionBag01
+BedsideFoot	1	RackInfusionBag01	InfusionBag	1	InfusionBag04
+BedsideHeadLeft	1	MonitorStand02	Computer	1	VitalsMonitor01
+Cart	1	COW00	Computer	1	ComputerSetCOW01	Misc	2	KidneyDish01	Misc	3	IVSet01	Misc	4	InfusionClamp01	Misc	5	LiquidSoap01	Misc	6	FoldedBloodPressureCuff01	Misc	7	Cannula01
+Nurse	1	NurseClickable01
+Bed	2	ExaminationBed01	Patient	2	PatientTemp
+Wall	2	Poster03
+BedsideHead	2	RackInfusionBottle01	InfusionBottle	1	InfusionBottleLiquid	1	InfusionBottleLiquid03	InfusionBottle	2	InfusionBottleLiquid	2	InfusionBottleLiquid03
+BedsideMid	2	RackInfusionBag02	InfusionBag	1	InfusionBag04
+BedsideFoot	2	RackInfusionBag01	InfusionBag	1	InfusionBag01
+BedsideHeadLeft	2	MonitorStand02	Computer	1	VitalsMonitor01
+Cart	2	COW00	Computer	1	ComputerSetCOW01	Misc	2	KidneyDish02	Misc	3	IVSet01	Misc	4	InfusionClamp01	Misc	5	LiquidSoap01	Misc	6	FoldedBloodPressureCuff01	Misc	7	Cannula01
+Nurse	2	Placeholder
+Desk	3	DeskSet02	Computer	1	ComputerSetCOW01	Phone	2	Telephone01	Document	3	DocGXMForm	Document	4	IDLabel01
+Bin	1	WastebinScene06
+Bin	2	WastebinScene06
+Bin	3	Wastebin01
