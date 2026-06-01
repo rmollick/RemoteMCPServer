@@ -2,13 +2,15 @@ const express = require("express");
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
+require('dotenv').config();
+
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
 const PORT = process.env.PORT || 3000;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "gemma3:4b";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || OLLAMA_MODEL;
 const PROJECT_ROOT =
   process.env.CEREBRUM_PROJECT_ROOT ||
   "C:\\CerebrumProjectSasan-main\\CerebrumProjectSasan-main";
@@ -34,7 +36,13 @@ const READABLE_EXTENSIONS = new Set([
   ".ini",
   ".cfg"
 ]);
-
+app.use((req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:* ws://localhost:*;"
+  );
+  next();
+});
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json({ limit: "10mb" }));
 
@@ -89,12 +97,12 @@ function getAllKnowledgeFiles() {
     const priority = filePath.includes("corrected-levelgen-examples")
       ? 1000
       : filePath.includes("manual-levelgen-examples")
-      ? 800
-      : rel.toLowerCase().includes("levelgen")
-      ? 300
-      : rel.toLowerCase().includes("scenario")
-      ? 200
-      : 100;
+        ? 800
+        : rel.toLowerCase().includes("levelgen")
+          ? 300
+          : rel.toLowerCase().includes("scenario")
+            ? 200
+            : 100;
     return {
       path: filePath,
       rel,
