@@ -10,7 +10,8 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 const PORT = process.env.PORT || 3000;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || OLLAMA_MODEL;
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || process.env.LOCAL_MODEL;
+
 const PROJECT_ROOT =
   process.env.CEREBRUM_PROJECT_ROOT ||
   "C:\\CerebrumProjectSasan-main\\CerebrumProjectSasan-main";
