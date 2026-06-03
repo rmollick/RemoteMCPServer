@@ -20,15 +20,50 @@ app.use(express.static("public"));
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --- Validate API key ---
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) {
-  console.error("❌ GEMINI_API_KEY missing. Put it in daemon/.env as GEMINI_API_KEY=...");
-  process.exit(1);
+// --- Model provider config ---
+const DEFAULT_PROVIDER = process.env.MODEL_PROVIDER || "gemini";
+const DEFAULT_GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const DEFAULT_OLLAMA_MODEL = process.env.OLLAMA_MODEL || "gemma3:4b";
+const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
+
+function envList(name, fallback) {
+  return String(process.env[name] || fallback)
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
 }
 
-// --- Gemini Client ---
-const ai = new GoogleGenAI({ apiKey });
+const GEMINI_MODELS = envList("GEMINI_MODELS", DEFAULT_GEMINI_MODEL);
+const OLLAMA_MODELS = envList("OLLAMA_MODELS", DEFAULT_OLLAMA_MODEL);
+
+function getGeminiClient() {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "insert key") {
+    throw new Error("Missing GEMINI_API_KEY in daemon/.env");
+  }
+
+  return new GoogleGenAI({ apiKey });
+}
+
+function getModelChoice(provider, model) {
+  const selectedProvider = provider || DEFAULT_PROVIDER;
+
+  if (selectedProvider === "gemini") {
+    return {
+      provider: "gemini",
+      model: model || DEFAULT_GEMINI_MODEL,
+    };
+  }
+
+  if (selectedProvider === "ollama") {
+    return {
+      provider: "ollama",
+      model: model || DEFAULT_OLLAMA_MODEL,
+    };
+  }
+
+  throw new Error(`Unknown model provider: ${selectedProvider}`);
+}
 
 // --- Load persistent workspace memory ---
 const WORKSPACE_MEMORY_PATH = path.join(__dirname, "prompts", "workspace_memory.txt");
@@ -157,10 +192,91 @@ function getText(response) {
   return texts.join("\n").trim();
 }
 
+async function callOllamaGenerate({ prompt, model, systemInstruction, image }) {
+  const body = {
+    model,
+    prompt,
+    stream: false,
+    system: systemInstruction,
+  };
+
+  // Only send images to Ollama if you intentionally enable it.
+  // Some local models do not support image input.
+  if (process.env.OLLAMA_SEND_IMAGES === "true" && image?.dataBase64) {
+    body.images = [image.dataBase64];
+  }
+
+  const response = await fetch(`${OLLAMA_URL}/api/generate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Ollama failed: ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.response || "";
+}
+
+function readSelectedFilePreview(selectedPath) {
+  if (!selectedPath) return "";
+
+  try {
+    const abs = safeJoin(selectedPath);
+    if (!fs.existsSync(abs)) return "";
+
+    const content = fs.readFileSync(abs, "utf-8");
+    return content.slice(0, 12000);
+  } catch {
+    return "";
+  }
+}
+
+async function runOllamaOnce({ prompt, selectedPath, image, model }) {
+  const selectedFileContent = readSelectedFilePreview(selectedPath);
+
+  const localPrompt = `
+You are running locally through Ollama.
+Use the workspace memory and selected file context to answer the user.
+
+${selectedPath ? `SELECTED FILE PATH:\n${selectedPath}\n` : ""}
+
+${selectedFileContent ? `SELECTED FILE CONTENT:\n${selectedFileContent}\n` : ""}
+
+USER REQUEST:
+${prompt}
+`;
+
+  broadcast({ type: "agent_start", provider: "ollama", model });
+
+  const output = await callOllamaGenerate({
+    prompt: localPrompt,
+    model,
+    systemInstruction: WORKSPACE_MEMORY,
+    image,
+  });
+
+  broadcast({ type: "agent_done", provider: "ollama", model, steps: 1 });
+
+  return {
+    ok: true,
+    provider: "ollama",
+    model,
+    steps: 1,
+    output,
+  };
+}
+
 // -----------------------------
 // Agent core: multimodal + tools loop
 // -----------------------------
-async function runAgentOnce({ prompt, selectedPath, image }) {
+async function runGeminiAgentOnce({ prompt, selectedPath, image, model }) {
+  const ai = getGeminiClient();
   if (image?.dataBase64 && image.dataBase64.length > 6_000_000) {
     return { ok: false, error: "Image too large (base64 > ~6MB). Use smaller image." };
   }
@@ -188,7 +304,7 @@ async function runAgentOnce({ prompt, selectedPath, image }) {
   const history = [{ role: "user", parts: userParts }];
 
   let response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
+    model,
     contents: history,
     config: {
       systemInstruction: WORKSPACE_MEMORY,
@@ -237,7 +353,7 @@ async function runAgentOnce({ prompt, selectedPath, image }) {
       history.push({ role: "user", parts: toolResponseParts });
 
       response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model,
         contents: history,
         config: {
           systemInstruction: WORKSPACE_MEMORY,
@@ -262,13 +378,60 @@ async function runAgentOnce({ prompt, selectedPath, image }) {
   return { ok: false, error: "Max tool steps reached" };
 }
 
+async function runAgentOnce({ prompt, selectedPath, image, provider, model }) {
+  const choice = getModelChoice(provider, model);
+
+  broadcast({
+    type: "model_selected",
+    provider: choice.provider,
+    model: choice.model,
+  });
+
+  if (choice.provider === "ollama") {
+    return await runOllamaOnce({
+      prompt,
+      selectedPath,
+      image,
+      model: choice.model,
+    });
+  }
+
+  if (choice.provider === "gemini") {
+    return await runGeminiAgentOnce({
+      prompt,
+      selectedPath,
+      image,
+      model: choice.model,
+    });
+  }
+
+  throw new Error(`Unsupported provider: ${choice.provider}`);
+}
+
 // -----------------------------
 // API: run agent from UI (text + selectedPath + image)
 // -----------------------------
+app.get("/api/models", (req, res) => {
+  res.json({
+    ok: true,
+    defaultProvider: DEFAULT_PROVIDER,
+    defaultModels: {
+      gemini: DEFAULT_GEMINI_MODEL,
+      ollama: DEFAULT_OLLAMA_MODEL,
+    },
+    providers: {
+      gemini: GEMINI_MODELS,
+      ollama: OLLAMA_MODELS,
+    },
+  });
+});
+
 app.post("/api/run", async (req, res) => {
   const prompt = req.body?.prompt;
   const selectedPath = req.body?.selectedPath || null;
-  const image = req.body?.image || null; // { mimeType, dataBase64 }
+  const image = req.body?.image || null;
+  const provider = req.body?.provider || DEFAULT_PROVIDER;
+  const model = req.body?.model || null;
 
   if (!prompt || typeof prompt !== "string") {
     return res.status(400).json({ ok: false, error: "Missing prompt" });
@@ -277,7 +440,13 @@ app.post("/api/run", async (req, res) => {
   broadcast({ type: "run_start" });
 
   try {
-    const result = await runAgentOnce({ prompt, selectedPath, image });
+    const result = await runAgentOnce({
+      prompt,
+      selectedPath,
+      image,
+      provider,
+      model,
+    });
     broadcast({ type: "run_done", ok: result.ok });
     res.status(result.ok ? 200 : 500).json(result);
   } catch (e) {

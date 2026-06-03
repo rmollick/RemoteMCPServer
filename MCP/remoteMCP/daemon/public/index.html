@@ -77,6 +77,22 @@
       </div>
 
       <hr />
+      <div><b>Model Switching</b></div>
+
+      <label for="providerSelect">Provider</label>
+      <select id="providerSelect" style="width:100%; margin-top:6px;">
+        <option value="ollama">Local Ollama</option>
+        <option value="gemini">Gemini Cloud API</option>
+      </select>
+
+      <label for="modelSelect" style="margin-top:8px;">Model</label>
+      <select id="modelSelect" style="width:100%; margin-top:6px;"></select>
+
+      <div id="modelStatus" class="muted" style="margin-top:6px;">
+        Loading models...
+      </div>
+
+      <hr />
       <div class="muted">Live events</div>
       <div id="events" class="log"></div>
     </div>
@@ -106,6 +122,14 @@
   const selectedEl = document.getElementById("selected");
   const promptEl = document.getElementById("prompt");
   const pathLabel = document.getElementById("pathLabel");
+  const providerSelect = document.getElementById("providerSelect");
+  const modelSelect = document.getElementById("modelSelect");
+  const modelStatus = document.getElementById("modelStatus");
+
+  let modelsByProvider = {
+    ollama: ["gemma3:4b"],
+    gemini: ["gemini-2.0-flash"],
+  };
 
   let selectedPath = null;
 
@@ -270,11 +294,56 @@
     addMsg("FILE", `=== ${selectedPath} ===\n` + (j.content || ""));
   }
 
+  function refreshModelDropdown() {
+    const provider = providerSelect.value;
+    const models = modelsByProvider[provider] || [];
+
+    modelSelect.innerHTML = "";
+
+    models.forEach((model) => {
+      const option = document.createElement("option");
+      option.value = model;
+      option.textContent = model;
+      modelSelect.appendChild(option);
+    });
+
+    modelStatus.textContent = `${provider} / ${modelSelect.value || "(no model)"}`;
+  }
+
+  async function loadModels() {
+    try {
+      const r = await fetch("/api/models");
+      const j = await r.json();
+
+      if (j.ok) {
+        modelsByProvider = j.providers || modelsByProvider;
+
+        if (j.defaultProvider) {
+          providerSelect.value = j.defaultProvider;
+        }
+
+        refreshModelDropdown();
+
+        const defaultModel = j.defaultModels?.[providerSelect.value];
+        if (defaultModel) modelSelect.value = defaultModel;
+
+        modelStatus.textContent = `${providerSelect.value} / ${modelSelect.value}`;
+      }
+    } catch (err) {
+      modelStatus.textContent = "Could not load model list.";
+    }
+  }
+
+  providerSelect.addEventListener("change", refreshModelDropdown);
+  modelSelect.addEventListener("change", () => {
+    modelStatus.textContent = `${providerSelect.value} / ${modelSelect.value}`;
+  });
+
   async function runAgent() {
     const prompt = promptEl.value.trim();
     if (!prompt) return;
 
-    addMsg("YOU", prompt);
+    addMsg("YOU", `[${providerSelect.value} / ${modelSelect.value}]\n${prompt}`);
 
     const r = await fetch("/api/run", {
       method: "POST",
@@ -283,6 +352,8 @@
         prompt,
         selectedPath,
         image: selectedImage
+        provider: providerSelect.value,
+        model: modelSelect.value
       })
     });
 
@@ -305,10 +376,73 @@
   document.getElementById("clear").onclick = () => { chatEl.innerHTML = ""; };
 
   (async function init(){
+    await loadModels();
     await loadRoot();
     await loadList("");
     setPathLabel();
   })();
+// -----------------------------
+// Voice input (Web Speech API)
+// -----------------------------
+const btnMic = document.getElementById("btnMic");
+const btnMicStop = document.getElementById("btnMicStop");
+const micStatus = document.getElementById("micStatus");
+
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null;
+
+function appendToPrompt(text) {
+  const current = promptEl.value || "";
+  promptEl.value = (current ? current + "\n" : "") + text;
+}
+
+btnMic.onclick = () => {
+  if (!SpeechRecognition) {
+    alert("SpeechRecognition not supported in this browser. Use Chrome/Edge.");
+    return;
+  }
+
+  rec = new SpeechRecognition();
+  rec.lang = "en-US";
+  rec.continuous = true;
+  rec.interimResults = true;
+
+  let finalText = "";
+
+  rec.onstart = () => {
+    btnMic.disabled = true;
+    btnMicStop.disabled = false;
+    micStatus.textContent = "Listening…";
+  };
+
+  rec.onerror = (e) => {
+    micStatus.textContent = `Mic error: ${e.error}`;
+  };
+
+  rec.onend = () => {
+    btnMic.disabled = false;
+    btnMicStop.disabled = true;
+    micStatus.textContent = "";
+    if (finalText.trim()) appendToPrompt(finalText.trim());
+    finalText = "";
+  };
+
+  rec.onresult = (event) => {
+    let interim = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const chunk = event.results[i][0].transcript;
+      if (event.results[i].isFinal) finalText += chunk + " ";
+      else interim += chunk;
+    }
+    micStatus.textContent = interim ? `… ${interim}` : "Listening…";
+  };
+
+  rec.start();
+};
+
+btnMicStop.onclick = () => {
+  if (rec) rec.stop();
+};
 </script>
 </body>
 </html>
