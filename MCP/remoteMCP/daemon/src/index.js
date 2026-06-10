@@ -1,3 +1,4 @@
+import { installLevelGenRoutes } from "./levelgenRoutes.js";
 import "dotenv/config";
 import express from "express";
 import { GoogleGenAI } from "@google/genai";
@@ -15,6 +16,8 @@ const PORT = Number(process.env.PORT || 3333);
 const app = express();
 app.use(express.json({ limit: "12mb" })); // allow image base64 payloads
 app.use(express.static("public"));
+
+installLevelGenRoutes(app);
 
 // ESM-safe __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -470,69 +473,6 @@ app.post("/run", async (req, res) => {
   }
 });
 
-
-// -----------------------------
-// Voice input (Web Speech API)
-// -----------------------------
-const btnMic = document.getElementById("btnMic");
-const btnMicStop = document.getElementById("btnMicStop");
-const micStatus = document.getElementById("micStatus");
-
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null;
-
-function appendToPrompt(text) {
-  const current = promptEl.value || "";
-  promptEl.value = (current ? current + "\n" : "") + text;
-}
-
-btnMic.onclick = () => {
-  if (!SpeechRecognition) {
-    alert("SpeechRecognition not supported in this browser. Use Chrome/Edge.");
-    return;
-  }
-
-  rec = new SpeechRecognition();
-  rec.lang = "en-US";
-  rec.continuous = true;
-  rec.interimResults = true;
-
-  let finalText = "";
-
-  rec.onstart = () => {
-    btnMic.disabled = true;
-    btnMicStop.disabled = false;
-    micStatus.textContent = "Listening…";
-  };
-
-  rec.onerror = (e) => {
-    micStatus.textContent = `Mic error: ${e.error}`;
-  };
-
-  rec.onend = () => {
-    btnMic.disabled = false;
-    btnMicStop.disabled = true;
-    micStatus.textContent = "";
-    if (finalText.trim()) appendToPrompt(finalText.trim());
-    finalText = "";
-  };
-
-  rec.onresult = (event) => {
-    let interim = "";
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const chunk = event.results[i][0].transcript;
-      if (event.results[i].isFinal) finalText += chunk + " ";
-      else interim += chunk;
-    }
-    micStatus.textContent = interim ? `… ${interim}` : "Listening…";
-  };
-
-  rec.start();
-};
-
-btnMicStop.onclick = () => {
-  if (rec) rec.stop();
-};
 
 // -----------------------------
 // Start server

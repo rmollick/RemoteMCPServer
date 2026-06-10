@@ -1,6 +1,1 @@
-{"type":"module","name":"daemon","version":"1.0.0","main":"index.js",
-"scripts":{
-    "start": "node src/index.js",
-    "dev": "node src/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
-    },"keywords":[],"author":"","license":"ISC","description":"","dependencies":{"@google/genai":"^1.38.0","dotenv":"^17.2.3","execa":"^9.6.1","express":"^5.2.1","glob":"^13.0.0","simple-git":"^3.30.0","ws":"^8.19.0","zod":"^4.3.6"}}
+{"type":"module","name":"daemon","version":"1.0.0","main":"index.js","scripts":{"start":"node src/index.js","dev":"node src/index.js","test":"echo \"Error: no test specified\" && exit 1"},"keywords":[],"author":"","license":"ISC","description":"","dependencies":{"@google/genai":"^1.38.0","dotenv":"^17.2.3","execa":"^9.6.1","express":"^5.2.1","glob":"^13.0.0","multer":"^2.1.1","simple-git":"^3.30.0","ws":"^8.19.0","zod":"^4.3.6"}}
