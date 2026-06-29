@@ -26,7 +26,7 @@ const __dirname = path.dirname(__filename);
 // --- Model provider config ---
 const DEFAULT_PROVIDER = process.env.MODEL_PROVIDER || "gemini";
 const DEFAULT_GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
-const DEFAULT_OLLAMA_MODEL = process.env.OLLAMA_MODEL || "gemma3:4b";
+const DEFAULT_OLLAMA_MODEL = process.env.OLLAMA_MODEL || "gemma3:4b, gemma4:e2b";
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 
 function envList(name, fallback) {
