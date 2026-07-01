@@ -452,11 +452,6 @@ app.get("/api/models", (req, res) => {
 });
 
 app.post("/api/run", async (req, res) => {
-  const selectedPaths = Array.isArray(req.body?.selectedPaths)
-    ? req.body.selectedPaths
-    : selectedPath
-      ? [selectedPath]
-      : [];
   const prompt = req.body?.prompt;
   const selectedPath = req.body?.selectedPath || null;
 
