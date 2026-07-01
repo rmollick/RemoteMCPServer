@@ -199,7 +199,7 @@
       }
     }
     body { font-family: ui-sans-serif, system-ui; margin: 0; }
-    .app { display: grid; grid-template-columns: 320px 1fr; height: 680px; }
+    .app { display: grid; grid-template-columns: 320px 1fr; min-height: 680px; }
     .sidebar { border-right: 1px solid #ddd; padding: 12px; overflow: auto; }
     .main { display: grid; grid-template-rows: 1fr auto; }
     .chat { padding: 12px; overflow: auto; }
@@ -221,13 +221,6 @@
   </style>
 </head>
 <body>
-  <div class="app-header">
-    <div>
-      <h1>Cerebrum Remote MCP + LevelGen Studio</h1>
-      <p>Use the agent to inspect the Unity workspace, then generate and evaluate LevelGen files from the same dashboard.</p>
-    </div>
-    <div id="connectionStatus" class="status-pill">Connecting...</div>
-  </div>
   <div class="app-shell">
     <div class="app-header">
       <div>
@@ -619,12 +612,13 @@
     modelStatus.textContent = `${providerSelect.value} / ${modelSelect.value}`;
   });
 
-  async function runAgent() {
-    const prompt = promptEl.value.trim();
-    if (!prompt) return;
+ async function runAgent() {
+  const prompt = promptEl.value.trim();
+  if (!prompt) return;
 
-    addMsg("YOU", `[${providerSelect.value} / ${modelSelect.value}]\n${prompt}`);
+  addMsg("YOU", `[${providerSelect.value} / ${modelSelect.value}]\n${prompt}`);
 
+  try {
     const r = await fetch("/api/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -651,7 +645,10 @@
     }
 
     addMsg("AGENT", j.output || JSON.stringify(j, null, 2));
-
+  } catch (error) {
+    addMsg("ERROR", error.message);
+  }
+}
   // WebSocket events
   const ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onmessage = (ev) => {
