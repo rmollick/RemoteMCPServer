@@ -5,6 +5,22 @@
   <title>Cerebrum Agent-lite (Gemini Agent)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    .agent-evaluation {
+      margin-top: 24px;
+      padding-top: 24px;
+      border-top: 1px solid #dbe3ee;
+    }
+
+    #unityEvaluation {
+      min-height: 220px;
+      max-height: 420px;
+      overflow: auto;
+      white-space: pre-wrap;
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 8px;
+      padding: 14px;
+    }
     .app-header {
       display: flex;
       justify-content: space-between;
@@ -275,10 +291,12 @@
       <div id="files"></div>
 
       <hr />
-      <div class="muted">Selected file</div>
+      <div class="muted">Selected reference files</div>
       <div id="selected" class="muted">(none)</div>
+
       <div class="row" style="margin-top:8px;">
-        <button class="btn" id="openFile">Open</button>
+        <button class="btn" id="openFile">Open Selected</button>
+        <button class="btn" id="clearSelected">Clear Selected</button>
       </div>
 
       <hr />
@@ -318,6 +336,19 @@
       </div>
     </div>
   </div>
+<section class="agent-evaluation">
+  <div class="section-heading">
+    <div>
+      <h2>Unity Script Evaluation</h2>
+      <p>After the agent generates a Unity C# script, Ollama checks it against the selected project files.</p>
+    </div>
+    <button id="evaluateUnityBtn" class="secondary-btn" disabled>
+      Evaluate Last Script
+    </button>
+  </div>
+
+  <pre id="unityEvaluation">Generate a Unity C# script through the Remote MCP Agent to see evaluation results here.</pre>
+</section>
 
   <section class="levelgen-studio">
   <div class="section-heading">
@@ -404,8 +435,9 @@
     gemini: ["gemini-2.0-flash"],
   };
 
-  let selectedPath = null;
-
+  const selectedPaths = new Set();
+  let selectedPath = null; // Keeps the first selected file for compatibility.
+  let lastUnityScript = "";
   // -----------------------------
   // Navigation state (single source of truth)
   // -----------------------------
@@ -416,14 +448,33 @@
     pathLabel.textContent = currentPath ? `/${currentPath}` : "/";
   }
 
-  function setSelectedPath(p, rowEl) {
-    selectedPath = p;
-    selectedEl.textContent = selectedPath || "(none)";
+  function updateSelectedFilesDisplay() {
+  const selected = [...selectedPaths];
 
-    // highlight selection
-    document.querySelectorAll("#files .file.selected").forEach(x => x.classList.remove("selected"));
-    if (rowEl) rowEl.classList.add("selected");
+  selectedPath = selected[0] || null;
+
+  if (!selected.length) {
+    selectedEl.textContent = "(none)";
+    return;
   }
+
+  selectedEl.textContent =
+    selected.length === 1
+      ? selected[0]
+      : `${selected.length} files selected:\n${selected.join("\n")}`;
+}
+
+function toggleSelectedPath(filePath, rowEl, checked) {
+  if (checked) {
+    selectedPaths.add(filePath);
+    rowEl.classList.add("selected");
+  } else {
+    selectedPaths.delete(filePath);
+    rowEl.classList.remove("selected");
+  }
+
+  updateSelectedFilesDisplay();
+}
 
   async function loadList(relPath = "") {
     const r = await fetch("/api/list?path=" + encodeURIComponent(relPath));
@@ -438,15 +489,35 @@
     (j.entries || []).forEach(e => {
       const div = document.createElement("div");
       div.className = "file";
-      div.textContent = e.name + (e.type === "dir" ? "/" : "");
 
-      div.onclick = () => {
-        if (e.type === "dir") {
-          goToPath(e.path);
-        } else {
-          setSelectedPath(e.path, div);
+      if (e.type === "dir") {
+        div.textContent = `${e.name}/`;
+        div.onclick = () => goToPath(e.path);
+      } else {
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = selectedPaths.has(e.path);
+
+        const label = document.createElement("span");
+        label.textContent = e.name;
+        label.style.marginLeft = "8px";
+
+        if (checkbox.checked) {
+          div.classList.add("selected");
         }
-      };
+
+        checkbox.onchange = () => {
+          toggleSelectedPath(e.path, div, checkbox.checked);
+        };
+
+        label.onclick = () => {
+          checkbox.checked = !checkbox.checked;
+          toggleSelectedPath(e.path, div, checkbox.checked);
+        };
+
+        div.appendChild(checkbox);
+        div.appendChild(label);
+      }
 
       filesEl.appendChild(div);
     });
@@ -561,10 +632,23 @@
   }
 
   async function openSelectedFile() {
-    if (!selectedPath) return;
-    const r = await fetch("/api/read?path=" + encodeURIComponent(selectedPath));
-    const j = await r.json();
-    addMsg("FILE", `=== ${selectedPath} ===\n` + (j.content || ""));
+    const paths = [...selectedPaths];
+
+    if (!paths.length) {
+      addMsg("FILE", "Select one or more files first.");
+      return;
+    }
+
+    for (const filePath of paths) {
+      try {
+        const r = await fetch("/api/read?path=" + encodeURIComponent(filePath));
+        const j = await r.json();
+
+        addMsg("FILE", `=== ${filePath} ===\n${j.content || j.error || ""}`);
+      } catch (error) {
+        addMsg("ERROR", `Could not open ${filePath}: ${error.message}`);
+      }
+    }
   }
 
   function refreshModelDropdown() {
@@ -625,6 +709,7 @@
       body: JSON.stringify({
         prompt,
         selectedPath,
+        selectedPaths: [...selectedPaths],
         image: selectedImage,
         provider: providerSelect.value,
         model: modelSelect.value
@@ -645,6 +730,16 @@
     }
 
     addMsg("AGENT", j.output || JSON.stringify(j, null, 2));
+    const agentOutput = j.output || "";
+
+    if (looksLikeUnityScript(agentOutput)) {
+      lastUnityScript = agentOutput;
+      document.getElementById("evaluateUnityBtn").disabled = false;
+      evaluateUnityScript(lastUnityScript);
+    } else {
+      document.getElementById("unityEvaluation").textContent =
+        "The latest agent response was not recognized as a Unity C# script. Ask the agent to generate a script using UnityEngine and MonoBehaviour.";
+    }
   } catch (error) {
     addMsg("ERROR", error.message);
   }
@@ -660,6 +755,12 @@
   
   document.getElementById("refresh").onclick = () => loadList(currentPath);
   document.getElementById("openFile").onclick = openSelectedFile;
+  document.getElementById("clearSelected").onclick = () => {
+    selectedPaths.clear();
+    selectedPath = null;
+    updateSelectedFilesDisplay();
+    loadList(currentPath);
+  };
   document.getElementById("run").onclick = runAgent;
   document.getElementById("clear").onclick = () => { chatEl.innerHTML = ""; };
 
@@ -916,6 +1017,61 @@ document.getElementById("lgMode").addEventListener("change", () => {
 loadLevelGenStatus();
 loadLevelGenFiles();
 
+function looksLikeUnityScript(text) {
+  const value = String(text || "");
+
+  return (
+    value.includes("using UnityEngine") ||
+    value.includes("MonoBehaviour") ||
+    value.includes("public class ") ||
+    value.includes("private void Start") ||
+    value.includes("void Update")
+  );
+}
+
+async function evaluateUnityScript(script) {
+  const evaluationEl = document.getElementById("unityEvaluation");
+  const evaluateButton = document.getElementById("evaluateUnityBtn");
+
+  if (!script || !script.trim()) {
+    evaluationEl.textContent = "There is no Unity script available to evaluate.";
+    return;
+  }
+
+  evaluationEl.textContent = "Ollama is evaluating the Unity script against the selected project files...";
+  evaluateButton.disabled = true;
+
+  try {
+    const response = await fetch("/api/evaluate-unity-script", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        script,
+        selectedPaths: [...selectedPaths],
+        provider: providerSelect.value,
+        model: modelSelect.value
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || data.details || "Evaluation failed.");
+    }
+
+    evaluationEl.textContent = data.output || "No evaluation was returned.";
+  } catch (error) {
+    evaluationEl.textContent = `Evaluation failed: ${error.message}`;
+  } finally {
+    evaluateButton.disabled = !lastUnityScript;
+  }
+}
+
+document.getElementById("evaluateUnityBtn").onclick = () => {
+  evaluateUnityScript(lastUnityScript);
+};
 </script>
 </body>
 </html>

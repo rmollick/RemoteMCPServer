@@ -226,23 +226,39 @@ async function callOllamaGenerate({ prompt, model, systemInstruction, image }) {
   return data.response || "";
 }
 
-function readSelectedFilePreview(selectedPath) {
-  if (!selectedPath) return "";
+function readSelectedFilePreviews(selectedPaths = []) {
+  const files = Array.isArray(selectedPaths) ? selectedPaths.slice(0, 8) : [];
+  const previews = [];
 
-  try {
-    const abs = safeJoin(selectedPath);
-    if (!fs.existsSync(abs)) return "";
+  for (const selectedPath of files) {
+    try {
+      const abs = safeJoin(selectedPath);
 
-    const content = fs.readFileSync(abs, "utf-8");
-    return content.slice(0, 12000);
-  } catch {
-    return "";
+      if (!fs.existsSync(abs)) continue;
+
+      const content = fs.readFileSync(abs, "utf-8").slice(0, 12000);
+
+      previews.push({
+        path: selectedPath,
+        content
+      });
+    } catch {
+      // Ignore unreadable files and continue evaluating the rest.
+    }
   }
+
+  return previews;
 }
 
-async function runOllamaOnce({ prompt, selectedPath, image, model }) {
-  const selectedFileContent = readSelectedFilePreview(selectedPath);
+async function runOllamaOnce({ prompt, selectedPaths = [], image, model }) {
+  const selectedFiles = readSelectedFilePreviews(selectedPaths);
 
+  const selectedFilesText = selectedFiles
+    .map(
+      (file) =>
+        `SELECTED FILE PATH:\n${file.path}\nSELECTED FILE CONTENT:\n${file.content}`
+    )
+    .join("\n\n");
   const localPrompt = `
 You are running locally through Ollama.
 Use the workspace memory and selected file context to answer the user.
@@ -250,6 +266,8 @@ Use the workspace memory and selected file context to answer the user.
 ${selectedPath ? `SELECTED FILE PATH:\n${selectedPath}\n` : ""}
 
 ${selectedFileContent ? `SELECTED FILE CONTENT:\n${selectedFileContent}\n` : ""}
+
+${selectedFilesText ? `SELECTED REFERENCE FILES:\n${selectedFilesText}\n` : ""}
 
 USER REQUEST:
 ${prompt}
@@ -278,7 +296,7 @@ ${prompt}
 // -----------------------------
 // Agent core: multimodal + tools loop
 // -----------------------------
-async function runGeminiAgentOnce({ prompt, selectedPath, image, model }) {
+async function runGeminiAgentOnce({ prompt, selectedPaths = [], image, model }) {
   const ai = getGeminiClient();
   if (image?.dataBase64 && image.dataBase64.length > 6_000_000) {
     return { ok: false, error: "Image too large (base64 > ~6MB). Use smaller image." };
@@ -286,9 +304,13 @@ async function runGeminiAgentOnce({ prompt, selectedPath, image, model }) {
 
   // Keep selectedPath as context only (do NOT trust it as a filesystem path here)
   // Your tools should enforce WORKSPACE_ROOT sandboxing.
+  const selectedFilesContext = selectedPaths.length
+    ? `[UI_SELECTED_PATHS]\n${selectedPaths.join("\n")}\n\n`
+    : "";
+
   const augmentedPrompt =
     (image?.dataBase64 ? "[INPUT_INCLUDES_IMAGE]\n" : "") +
-    (selectedPath ? `[UI_SELECTED_PATH]\n${selectedPath}\n\n` : "") +
+    selectedFilesContext +
     prompt;
 
   const userParts = [{ text: augmentedPrompt }];
@@ -381,7 +403,7 @@ async function runGeminiAgentOnce({ prompt, selectedPath, image, model }) {
   return { ok: false, error: "Max tool steps reached" };
 }
 
-async function runAgentOnce({ prompt, selectedPath, image, provider, model }) {
+async function runAgentOnce({ prompt, selectedPaths = [], image, provider, model }) {
   const choice = getModelChoice(provider, model);
 
   broadcast({
@@ -430,8 +452,27 @@ app.get("/api/models", (req, res) => {
 });
 
 app.post("/api/run", async (req, res) => {
+  const selectedPaths = Array.isArray(req.body?.selectedPaths)
+    ? req.body.selectedPaths
+    : selectedPath
+      ? [selectedPath]
+      : [];
   const prompt = req.body?.prompt;
   const selectedPath = req.body?.selectedPath || null;
+
+  const selectedPaths = Array.isArray(req.body?.selectedPaths)
+    ? req.body.selectedPaths
+    : selectedPath
+      ? [selectedPath]
+      : [];
+
+  const output = await runAgentOnce({
+    prompt,
+    selectedPaths,
+    image,
+    provider,
+    model
+  });  
   const image = req.body?.image || null;
   const provider = req.body?.provider || DEFAULT_PROVIDER;
   const model = req.body?.model || null;
@@ -473,7 +514,95 @@ app.post("/run", async (req, res) => {
   }
 });
 
+app.post("/api/evaluate-unity-script", async (req, res) => {
+  const script = String(req.body?.script || "").trim();
+  const selectedPaths = Array.isArray(req.body?.selectedPaths)
+    ? req.body.selectedPaths.slice(0, 8)
+    : [];
 
+  const provider = req.body?.provider || DEFAULT_PROVIDER;
+  const model = req.body?.model || null;
+
+  if (!script) {
+    return res.status(400).json({
+      ok: false,
+      error: "Missing Unity script."
+    });
+  }
+
+  try {
+    const choice = getModelChoice(provider, model);
+    const selectedFiles = readSelectedFilePreviews(selectedPaths);
+
+    const referenceText = selectedFiles
+      .map(
+        (file) =>
+          `REFERENCE FILE: ${file.path}\n${file.content}`
+      )
+      .join("\n\n");
+
+    const evaluationPrompt = `
+You are reviewing a proposed Unity C# script for a Cerebrum project.
+
+Evaluate it for:
+1. C# syntax and likely Unity compile errors.
+2. Missing namespaces, types, methods, or references.
+3. Compatibility with the selected project reference files.
+4. Whether it should be attached to a GameObject and any Inspector setup needed.
+5. Clear fixes before using it in Unity.
+
+Do not write files.
+Do not call tools.
+Return a concise report with these headings:
+VERDICT
+LIKELY ISSUES
+UNITY SETUP
+RECOMMENDED FIXES
+TEST PLAN
+
+SELECTED PROJECT REFERENCES:
+${referenceText || "(No files selected.)"}
+
+UNITY SCRIPT TO EVALUATE:
+${script}
+`;
+
+    let output = "";
+
+    if (choice.provider === "ollama") {
+      output = await callOllamaGenerate({
+        prompt: evaluationPrompt,
+        model: choice.model,
+        systemInstruction: WORKSPACE_MEMORY,
+        image: null
+      });
+    } else {
+      const ai = getGeminiClient();
+
+      const response = await ai.models.generateContent({
+        model: choice.model,
+        contents: [{ role: "user", parts: [{ text: evaluationPrompt }] }],
+        config: {
+          systemInstruction: WORKSPACE_MEMORY
+        }
+      });
+
+      output = getText(response);
+    }
+
+    res.json({
+      ok: true,
+      provider: choice.provider,
+      model: choice.model,
+      output
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
 // -----------------------------
 // Start server
 // -----------------------------
