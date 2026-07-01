@@ -5,6 +5,11 @@
   <title>Cerebrum Agent-lite (Gemini Agent)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    #selected {
+      white-space: pre-wrap;
+      max-height: 150px;
+      overflow-y: auto;
+    }
     .agent-evaluation {
       margin-top: 24px;
       padding-top: 24px;
@@ -216,7 +221,7 @@
     }
     body { font-family: ui-sans-serif, system-ui; margin: 0; }
     .app { display: grid; grid-template-columns: 320px 1fr; min-height: 680px; }
-    .sidebar { border-right: 1px solid #ddd; padding: 12px; overflow: auto; }
+    .sidebar { border-right: 1px solid #ddd; padding: 12px; overflow-y: auto; max-height: 680px;}
     .main { display: grid; grid-template-rows: 1fr auto; }
     .chat { padding: 12px; overflow: auto; }
     .composer { border-top: 1px solid #ddd; padding: 12px; display: flex; gap: 8px; }
