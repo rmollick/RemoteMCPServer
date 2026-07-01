@@ -260,18 +260,14 @@ async function runOllamaOnce({ prompt, selectedPaths = [], image, model }) {
     )
     .join("\n\n");
   const localPrompt = `
-You are running locally through Ollama.
-Use the workspace memory and selected file context to answer the user.
+  You are running locally through Ollama.
+  Use the workspace memory and selected file context to answer the user.
 
-${selectedPath ? `SELECTED FILE PATH:\n${selectedPath}\n` : ""}
+  ${selectedFilesText ? `SELECTED REFERENCE FILES:\n${selectedFilesText}\n` : ""}
 
-${selectedFileContent ? `SELECTED FILE CONTENT:\n${selectedFileContent}\n` : ""}
-
-${selectedFilesText ? `SELECTED REFERENCE FILES:\n${selectedFilesText}\n` : ""}
-
-USER REQUEST:
-${prompt}
-`;
+  USER REQUEST:
+  ${prompt}
+  `;
 
   broadcast({ type: "agent_start", provider: "ollama", model });
 
@@ -415,7 +411,7 @@ async function runAgentOnce({ prompt, selectedPaths = [], image, provider, model
   if (choice.provider === "ollama") {
     return await runOllamaOnce({
       prompt,
-      selectedPath,
+      selectedPaths,
       image,
       model: choice.model,
     });
@@ -424,7 +420,7 @@ async function runAgentOnce({ prompt, selectedPaths = [], image, provider, model
   if (choice.provider === "gemini") {
     return await runGeminiAgentOnce({
       prompt,
-      selectedPath,
+      selectedPaths,
       image,
       model: choice.model,
     });
@@ -452,7 +448,15 @@ app.get("/api/models", (req, res) => {
 });
 
 app.post("/api/run", async (req, res) => {
-  const prompt = req.body?.prompt;
+  const prompt = String(req.body?.prompt || "").trim();
+
+  if (!prompt) {
+    return res.status(400).json({
+      ok: false,
+      error: "Missing prompt"
+    });
+  }
+
   const selectedPath = req.body?.selectedPath || null;
 
   const selectedPaths = Array.isArray(req.body?.selectedPaths)
@@ -461,36 +465,30 @@ app.post("/api/run", async (req, res) => {
       ? [selectedPath]
       : [];
 
-  const output = await runAgentOnce({
-    prompt,
-    selectedPaths,
-    image,
-    provider,
-    model
-  });  
   const image = req.body?.image || null;
   const provider = req.body?.provider || DEFAULT_PROVIDER;
   const model = req.body?.model || null;
-
-  if (!prompt || typeof prompt !== "string") {
-    return res.status(400).json({ ok: false, error: "Missing prompt" });
-  }
 
   broadcast({ type: "run_start" });
 
   try {
     const result = await runAgentOnce({
       prompt,
-      selectedPath,
+      selectedPaths,
       image,
       provider,
       model,
     });
+
     broadcast({ type: "run_done", ok: result.ok });
     res.status(result.ok ? 200 : 500).json(result);
   } catch (e) {
     broadcast({ type: "run_error", error: e?.message || String(e) });
-    res.status(500).json({ ok: false, error: e?.message || String(e) });
+
+    res.status(500).json({
+      ok: false,
+      error: e?.message || String(e)
+    });
   }
 });
 
@@ -502,7 +500,13 @@ app.post("/run", async (req, res) => {
   }
 
   try {
-    const result = await runAgentOnce({ prompt, selectedPath: null, image: null });
+    const result = await runAgentOnce({
+      prompt,
+      selectedPaths: [],
+      image: null,
+      provider: DEFAULT_PROVIDER,
+      model: null
+    });    
     res.status(result.ok ? 200 : 500).json(result);
   } catch (e) {
     res.status(500).json({ ok: false, error: e?.message || String(e) });
