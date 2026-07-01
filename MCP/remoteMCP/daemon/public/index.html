@@ -5,8 +5,201 @@
   <title>Cerebrum Agent-lite (Gemini Agent)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    .app-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+      margin-bottom: 22px;
+    }
+
+    .app-header h1 {
+      margin: 0 0 6px;
+      font-size: 28px;
+    }
+
+    .app-header p {
+      margin: 0;
+      color: #64748b;
+    }
+
+    .status-pill {
+      white-space: nowrap;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      color: #334155;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .levelgen-studio {
+      margin-top: 28px;
+      padding-top: 28px;
+      border-top: 1px solid #dbe3ee;
+    }
+
+    .section-heading,
+    .reference-heading {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      margin-bottom: 14px;
+    }
+
+    .section-heading h2,
+    .reference-heading h3,
+    .levelgen-card h3 {
+      margin: 0 0 6px;
+    }
+
+    .section-heading p,
+    .reference-heading p {
+      margin: 0;
+      color: #64748b;
+    }
+
+    .project-status {
+      margin-bottom: 16px;
+      padding: 12px;
+      background: #f8fafc;
+      border: 1px solid #dbe3ee;
+      border-radius: 10px;
+      color: #334155;
+    }
+
+    .levelgen-grid,
+    .levelgen-output-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .levelgen-card {
+      background: #ffffff;
+      border: 1px solid #dbe3ee;
+      border-radius: 12px;
+      padding: 18px;
+    }
+
+    .levelgen-card label {
+      display: block;
+      margin: 12px 0 6px;
+      font-weight: 700;
+    }
+
+    .levelgen-card input,
+    .levelgen-card select,
+    .levelgen-card textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 10px;
+      font: inherit;
+    }
+    #lgPrompt {
+      min-height: 220px;
+    }
+
+    .levelgen-card textarea {
+      resize: vertical;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+
+    .primary-btn,
+    .secondary-btn {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-weight: 800;
+    }
+
+    .primary-btn {
+      background: #0f172a;
+      color: white;
+    }
+
+    .secondary-btn {
+      background: #e2e8f0;
+      color: #1e293b;
+    }
+
+    .primary-btn:hover {
+      background: #1e293b;
+    }
+
+    .secondary-btn:hover {
+      background: #cbd5e1;
+    }
+
+    .reference-list {
+      max-height: 390px;
+      overflow-y: auto;
+      border: 1px solid #dbe3ee;
+      border-radius: 8px;
+      padding: 8px;
+    }
+
+    .reference-file {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 8px;
+      border-bottom: 1px solid #eef2f7;
+      font-size: 13px;
+    }
+
+    .reference-file:last-child {
+      border-bottom: 0;
+    }
+
+    .reference-file label {
+      margin: 0;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .small-text {
+      font-size: 13px;
+      color: #64748b;
+      margin-bottom: 10px;
+    }
+
+    #lgOutput,
+    #lgEvaluation {
+      min-height: 260px;
+      max-height: 460px;
+      overflow: auto;
+      white-space: pre-wrap;
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    @media (max-width: 900px) {
+      .levelgen-grid,
+      .levelgen-output-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .app-header,
+      .section-heading,
+      .reference-heading {
+        flex-direction: column;
+      }
+    }
     body { font-family: ui-sans-serif, system-ui; margin: 0; }
-    .app { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+    .app { display: grid; grid-template-columns: 320px 1fr; height: 680px; }
     .sidebar { border-right: 1px solid #ddd; padding: 12px; overflow: auto; }
     .main { display: grid; grid-template-rows: 1fr auto; }
     .chat { padding: 12px; overflow: auto; }
@@ -22,46 +215,30 @@
     .msg { margin: 10px 0; }
     .msg .role { font-weight: 700; }
     .log { background: #111; color: #ddd; padding: 8px; border-radius: 10px; }
-    .top-nav {
-      display: flex;
-      gap: 14px;
-      align-items: center;
-      margin-bottom: 28px;
-    }
-
-    .nav-btn {
-      display: inline-block;
-      padding: 14px 22px;
-      border-radius: 10px;
-      background: #374151;
-      color: white;
-      text-decoration: none;
-      font-weight: 800;
-      font-size: 18px;
-      transition: 0.15s ease;
-    }
-
-    .nav-btn:hover {
-      background: #1f2937;
-      transform: translateY(-1px);
-    }
-
-    .nav-btn.active {
-      background: #111827;
+    .app-shell {
+      padding: 18px;
     }
   </style>
 </head>
 <body>
-  <div style="padding:10px; background:#111827; display:flex; gap:10px;">
-    <a href="/index.html" style="color:white; text-decoration:none; font-weight:bold;">Remote MCP Agent</a>
-    <a href="/levelgen.html" style="color:white; text-decoration:none; font-weight:bold;">LevelGen Generator</a>
+  <div class="app-header">
+    <div>
+      <h1>Cerebrum Remote MCP + LevelGen Studio</h1>
+      <p>Use the agent to inspect the Unity workspace, then generate and evaluate LevelGen files from the same dashboard.</p>
+    </div>
+    <div id="connectionStatus" class="status-pill">Connecting...</div>
   </div>
-  <div class="top-nav">
-    <a class="nav-btn" href="levelgen.html">LevelGen Generator</a>
-    <a class="nav-btn active" href="index.html">Remote MCP Agent</a>
-  </div>
-  <div class="app">
-    <div class="sidebar">
+  <div class="app-shell">
+    <div class="app-header">
+      <div>
+        <h1>Cerebrum Remote MCP + LevelGen Studio</h1>
+        <p>Use the agent to inspect the Unity workspace, then generate and evaluate LevelGen files from the same dashboard.</p>
+      </div>
+      <div id="connectionStatus" class="status-pill">Connecting...</div>
+    </div>
+
+    <div class="app">
+      <div class="sidebar">
       <div class="row" style="justify-content:space-between;">
         <div>
           <div><b>Workspace</b></div>
@@ -149,6 +326,74 @@
     </div>
   </div>
 
+  <section class="levelgen-studio">
+  <div class="section-heading">
+    <div>
+      <h2>LevelGen Studio</h2>
+      <p>Generate Unity-compatible LevelGen room files using the selected project references.</p>
+    </div>
+    <button id="lgRefreshStatus" class="secondary-btn">Refresh Project Status</button>
+  </div>
+
+  <div id="lgProjectStatus" class="project-status">
+    Loading LevelGen project information...
+  </div>
+
+  <div class="levelgen-grid">
+    <div class="levelgen-card">
+      <label for="lgMode">Generation mode</label>
+      <select id="lgMode">
+        <option value="levelgen">LevelGen room file</option>
+        <option value="scenario">Scenario file</option>
+      </select>
+
+      <label for="lgFileName">Output file name</label>
+      <input id="lgFileName" type="text" value="Generated_MedRoom_AI" />
+
+      <label for="lgTopK">Top reference files</label>
+      <input id="lgTopK" type="number" min="1" max="30" value="12" />
+
+      <label for="lgPrompt">Generation request</label>
+      <textarea id="lgPrompt" rows="10">Generate a complex medical exam room LevelGen file based on the corrected and manual examples. Include a patient bed, patient, wall objects, sink/handwashing area, IV bottles or bags, vitals monitor, medical cart, chair, table, and supplies.</textarea>
+
+      <label for="lgImage">Optional image or screenshot</label>
+      <input id="lgImage" type="file" accept="image/*" />
+
+      <div class="button-row">
+        <button id="lgGenerateBtn" class="primary-btn">Generate LevelGen File</button>
+        <button id="lgEvaluateBtn" class="secondary-btn">Evaluate Output</button>
+      </div>
+    </div>
+
+    <div class="levelgen-card">
+      <div class="reference-heading">
+        <div>
+          <h3>Project Reference Files</h3>
+          <p>Select files to force them into the generator context.</p>
+        </div>
+        <button id="lgRefreshFilesBtn" class="secondary-btn">Refresh Files</button>
+      </div>
+
+      <div id="lgFileList" class="reference-list">
+        Loading reference files...
+      </div>
+    </div>
+  </div>
+
+  <div class="levelgen-output-grid">
+    <div class="levelgen-card">
+      <h3>Generated Output</h3>
+      <div id="lgSaveInfo" class="small-text"></div>
+      <pre id="lgOutput">Your generated LevelGen file will appear here.</pre>
+    </div>
+
+    <div class="levelgen-card">
+      <h3>Evaluation</h3>
+      <pre id="lgEvaluation">Generate a file, then select Evaluate Output.</pre>
+    </div>
+  </div>
+</section>
+</div>
 <script>
   const chatEl = document.getElementById("chat");
   const filesEl = document.getElementById("files");
@@ -392,9 +637,20 @@
       })
     });
 
-    const j = await r.json();
+    const text = await r.text();
+
+    let j;
+    try {
+      j = JSON.parse(text);
+    } catch {
+      throw new Error(text || "The agent server returned an invalid response.");
+    }
+
+    if (!r.ok) {
+      throw new Error(j.error || j.details || "Agent request failed.");
+    }
+
     addMsg("AGENT", j.output || JSON.stringify(j, null, 2));
-  }
 
   // WebSocket events
   const ws = new WebSocket(`ws://${location.host}/ws`);
@@ -478,6 +734,191 @@ btnMic.onclick = () => {
 btnMicStop.onclick = () => {
   if (rec) rec.stop();
 };
+let levelGenFiles = [];
+
+function selectedLevelGenFiles() {
+  return [...document.querySelectorAll(".lg-file-checkbox:checked")]
+    .map((checkbox) => checkbox.value);
+}
+
+async function loadLevelGenStatus() {
+  const statusBox = document.getElementById("lgProjectStatus");
+
+  try {
+    const response = await fetch("/api/status");
+    const data = await response.json();
+
+    statusBox.textContent =
+      `Connected | Model: ${data.model} | Files indexed: ${data.fileCount} | Project: ${data.projectRoot}`;
+
+    document.getElementById("connectionStatus").textContent = "LevelGen Connected";
+  } catch (error) {
+    statusBox.textContent =
+      `LevelGen backend is not connected: ${error.message}`;
+
+    document.getElementById("connectionStatus").textContent = "Backend Error";
+  }
+}
+
+async function loadLevelGenFiles() {
+  const list = document.getElementById("lgFileList");
+  const mode = document.getElementById("lgMode").value;
+  const prompt = document.getElementById("lgPrompt").value;
+
+  list.textContent = "Loading reference files...";
+
+  try {
+    const response = await fetch(
+      `/api/files?mode=${encodeURIComponent(mode)}&prompt=${encodeURIComponent(prompt)}`
+    );
+
+    const data = await response.json();
+    levelGenFiles = data.files || [];
+
+    list.innerHTML = "";
+
+    levelGenFiles.forEach((file, index) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "reference-file";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "lg-file-checkbox";
+      checkbox.id = `lg-file-${index}`;
+      checkbox.value = file.path;
+
+      if (index < 2) checkbox.checked = true;
+
+      const label = document.createElement("label");
+      label.htmlFor = checkbox.id;
+      label.textContent = file.rel;
+
+      wrapper.appendChild(checkbox);
+      wrapper.appendChild(label);
+      list.appendChild(wrapper);
+    });
+
+    if (!levelGenFiles.length) {
+      list.textContent = "No compatible reference files were found.";
+    }
+  } catch (error) {
+    list.textContent = `Could not load reference files: ${error.message}`;
+  }
+}
+
+async function generateLevelGen() {
+  const output = document.getElementById("lgOutput");
+  const saveInfo = document.getElementById("lgSaveInfo");
+  const button = document.getElementById("lgGenerateBtn");
+
+  const mode = document.getElementById("lgMode").value;
+  const prompt = document.getElementById("lgPrompt").value.trim();
+
+  if (!prompt) {
+    output.textContent = "Enter a generation request first.";
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "Generating...";
+  output.textContent = "Building project context and generating output...";
+  saveInfo.textContent = "";
+
+  const formData = new FormData();
+  formData.append("mode", mode);
+  formData.append("fileName", document.getElementById("lgFileName").value);
+  formData.append("topK", document.getElementById("lgTopK").value);
+  formData.append("prompt", prompt);
+  formData.append(
+    "selectedPaths",
+    JSON.stringify(selectedLevelGenFiles())
+  );
+
+  const image = document.getElementById("lgImage").files[0];
+  if (image) {
+    formData.append("image", image);
+  }
+
+  try {
+    const response = await fetch("/generate", {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.details || data.error || "Generation failed.");
+    }
+
+    output.textContent = data.script || "No output returned.";
+    saveInfo.textContent =
+      `Saved: ${data.savedPath} | Active file: ${data.activePath}`;
+
+    document.getElementById("lgEvaluation").textContent =
+      JSON.stringify(data.localEvaluation, null, 2);
+  } catch (error) {
+    output.textContent = `Generation failed: ${error.message}`;
+  } finally {
+    button.disabled = false;
+    button.textContent =
+      mode === "levelgen" ? "Generate LevelGen File" : "Generate Scenario File";
+  }
+}
+
+async function evaluateLevelGen() {
+  const output = document.getElementById("lgOutput").textContent.trim();
+  const evaluation = document.getElementById("lgEvaluation");
+  const mode = document.getElementById("lgMode").value;
+  const prompt = document.getElementById("lgPrompt").value;
+
+  if (!output || output.startsWith("Your generated")) {
+    evaluation.textContent = "Generate a file before evaluating it.";
+    return;
+  }
+
+  evaluation.textContent = "Evaluating generated output...";
+
+  try {
+    const response = await fetch("/evaluate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        mode,
+        prompt,
+        script: output
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.details || data.error || "Evaluation failed.");
+    }
+
+    evaluation.textContent = JSON.stringify(data, null, 2);
+  } catch (error) {
+    evaluation.textContent = `Evaluation failed: ${error.message}`;
+  }
+}
+
+document.getElementById("lgRefreshStatus").addEventListener("click", loadLevelGenStatus);
+document.getElementById("lgRefreshFilesBtn").addEventListener("click", loadLevelGenFiles);
+document.getElementById("lgGenerateBtn").addEventListener("click", generateLevelGen);
+document.getElementById("lgEvaluateBtn").addEventListener("click", evaluateLevelGen);
+
+document.getElementById("lgMode").addEventListener("change", () => {
+  const mode = document.getElementById("lgMode").value;
+  document.getElementById("lgGenerateBtn").textContent =
+    mode === "levelgen" ? "Generate LevelGen File" : "Generate Scenario File";
+  loadLevelGenFiles();
+});
+
+loadLevelGenStatus();
+loadLevelGenFiles();
+
 </script>
 </body>
 </html>
