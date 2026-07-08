@@ -5,6 +5,22 @@
   <title>Cerebrum Agent-lite (Gemini Agent)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    .agent-levelgen-save {
+      margin-top: 24px;
+      padding-top: 24px;
+      border-top: 1px solid #dbe3ee;
+    }
+
+    #agentLevelGenSaveStatus {
+      min-height: 90px;
+      max-height: 220px;
+      overflow: auto;
+      white-space: pre-wrap;
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 8px;
+      padding: 14px;
+    }
     #selected {
       white-space: pre-wrap;
       max-height: 150px;
@@ -341,6 +357,16 @@
       </div>
     </div>
   </div>
+<section class="agent-levelgen-save">
+  <div class="section-heading">
+    <div>
+      <h2>Agent LevelGen Auto-Save</h2>
+      <p>If the Remote MCP Agent generates a complete LevelGen room, it will be written to the active Unity LevelGen text file.</p>
+    </div>
+  </div>
+
+  <pre id="agentLevelGenSaveStatus">No agent-generated LevelGen room has been saved yet.</pre>
+</section>
 <section class="agent-evaluation">
   <div class="section-heading">
     <div>
@@ -700,7 +726,53 @@ function toggleSelectedPath(filePath, rowEl, checked) {
   modelSelect.addEventListener("change", () => {
     modelStatus.textContent = `${providerSelect.value} / ${modelSelect.value}`;
   });
+  function looksLikeLevelGenRoom(text) {
+    const value = String(text || "")
+      .replace(/```txt/gi, "")
+      .replace(/```levelgen/gi, "")
+      .replace(/```/g, "")
+      .trim();
 
+    const lines = value
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    return lines.length >= 2 && lines.some((line) => /^Room\b/i.test(line));
+  }
+
+  async function saveAgentLevelGen(script) {
+    const status = document.getElementById("agentLevelGenSaveStatus");
+
+    if (!status) return;
+
+    status.textContent = "Saving agent-generated LevelGen room into Unity StreamingAssets...";
+
+    try {
+      const response = await fetch("/api/save-agent-levelgen", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          script,
+          fileName: "AgentGeneratedLevelGen"
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Save failed.");
+      }
+
+      status.textContent =
+        `Saved agent-generated LevelGen file.\n\nSaved copy:\n${data.savedPath}\n\nActive Unity file:\n${data.activePath}\n\nLines written: ${data.lineCount}`;
+    } catch (error) {
+      status.textContent =
+        `Agent output was not saved as LevelGen.\nReason: ${error.message}`;
+    }
+  }
  async function runAgent() {
   const prompt = promptEl.value.trim();
   if (!prompt) return;
@@ -745,10 +817,21 @@ function toggleSelectedPath(filePath, rowEl, checked) {
       document.getElementById("unityEvaluation").textContent =
         "The latest agent response was not recognized as a Unity C# script. Ask the agent to generate a script using UnityEngine and MonoBehaviour.";
     }
+
+    if (looksLikeLevelGenRoom(agentOutput)) {
+      saveAgentLevelGen(agentOutput);
+    } else {
+      const status = document.getElementById("agentLevelGenSaveStatus");
+      if (status) {
+        status.textContent =
+          "Latest agent response was not recognized as a complete LevelGen room, so it was not written to ActiveGeneratedLevelGen.txt.";
+      }
+    }
   } catch (error) {
     addMsg("ERROR", error.message);
   }
 }
+
   // WebSocket events
   const ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onmessage = (ev) => {

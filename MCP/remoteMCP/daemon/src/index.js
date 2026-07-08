@@ -602,6 +602,95 @@ ${script}
     });
   }
 });
+
+function cleanLevelGenOutput(text) {
+  return String(text || "")
+    .replace(/```txt/gi, "")
+    .replace(/```levelgen/gi, "")
+    .replace(/```cerebrum/gi, "")
+    .replace(/```/g, "")
+    .replace(/^Here is.*$/gim, "")
+    .replace(/^Sure[,!]?.*$/gim, "")
+    .trim();
+}
+
+function looksLikeLevelGenText(text) {
+  const value = cleanLevelGenOutput(text);
+  const lines = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+
+  if (!lines.length) return false;
+
+  const hasRoomLine = lines.some((line) => /^Room\b/i.test(line));
+  const hasMultipleRows = lines.length >= 2;
+
+  return hasRoomLine && hasMultipleRows;
+}
+
+app.post("/api/save-agent-levelgen", (req, res) => {
+  try {
+    const rawScript = String(req.body?.script || "");
+    const script = cleanLevelGenOutput(rawScript);
+
+    if (!script.trim()) {
+      return res.status(400).json({
+        ok: false,
+        error: "No LevelGen content was provided."
+      });
+    }
+
+    if (!looksLikeLevelGenText(script)) {
+      return res.status(400).json({
+        ok: false,
+        error: "The agent output does not look like a complete LevelGen room file. It needs a Room row and multiple rows."
+      });
+    }
+
+    const projectRoot =
+      process.env.CEREBRUM_PROJECT_ROOT ||
+      process.env.WORKSPACE_ROOT ||
+      WORKSPACE_ROOT_REAL;
+
+    const outputDir = path.join(
+      projectRoot,
+      "Assets",
+      "StreamingAssets",
+      "LevelGen",
+      "Generated"
+    );
+
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const fileName = String(req.body?.fileName || "AgentGeneratedLevelGen")
+      .replace(/[^a-z0-9_\- ]/gi, "")
+      .trim()
+      .replace(/\s+/g, "_") || "AgentGeneratedLevelGen";
+
+    const savedPath = path.join(outputDir, `${fileName}.txt`);
+    const activePath = path.join(outputDir, "ActiveGeneratedLevelGen.txt");
+
+    fs.writeFileSync(savedPath, script, "utf8");
+    fs.writeFileSync(activePath, script, "utf8");
+
+    broadcast({
+      type: "agent_levelgen_saved",
+      savedPath,
+      activePath
+    });
+
+    res.json({
+      ok: true,
+      savedPath,
+      activePath,
+      lineCount: script.split(/\r?\n/).filter(Boolean).length
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
+
 // -----------------------------
 // Start server
 // -----------------------------
