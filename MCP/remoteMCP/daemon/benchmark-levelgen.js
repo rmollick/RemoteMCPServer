@@ -12,7 +12,7 @@ async function runLevelGenBenchmark() {
     const t0 = performance.now();
     const statusRes = await fetch(`${BASE_URL}/api/status`);
     const statusTime = performance.now() - t0;
-    
+
     if (!statusRes.ok) {
       throw new Error(`Status failed: ${statusRes.statusText}`);
     }
@@ -90,20 +90,52 @@ async function runLevelGenBenchmark() {
       throw new Error(`Evaluation failed: ${evalRes.statusText}`);
     }
     const evalData = await evalRes.json();
+
+    // Extract evaluation metrics
+    const modelEval = evalData.modelEvaluation || {};
+
+    // Debugging print in case it is returning N/A
+    if (!modelEval.score && !modelEval.pass) {
+      console.log("⚠️  Warning: Model returned empty or unparsed evaluation structure. Raw response was:");
+      console.log(JSON.stringify(modelEval, null, 2));
+    }
+
+    const hasValidSchema = typeof modelEval.score !== 'undefined' && typeof modelEval.pass !== 'undefined';
+
+    const problemsCount = Array.isArray(modelEval.problems) ? modelEval.problems.length : (modelEval.problems ? 1 : 0);
+    const fixesCount = Array.isArray(modelEval.fixes) ? modelEval.fixes.length : (modelEval.fixes ? 1 : 0);
+    const hasCorrectedVersion = !!modelEval.corrected_version;
+
+    const localPass = evalData.localEvaluation?.pass;
+    const modelPass = modelEval.pass;
+    const evaluationAgreement = localPass === modelPass;
+
     console.log(`✅ Evaluation completed in ${(evalTime / 1000).toFixed(2)}s (${evalTime.toFixed(1)}ms)`);
-    console.log(`   Model Score: ${evalData.modelEvaluation?.score || "N/A"}`);
-    console.log(`   Model Pass: ${evalData.modelEvaluation?.pass || "N/A"}\n`);
+    console.log(`   Model Score:           ${modelEval.score ?? "N/A"}/100`);
+    console.log(`   Model Pass:            ${modelEval.pass ?? "N/A"}`);
+    console.log(`   Format Schema Valid:   ${hasValidSchema ? "Yes" : "No"}`);
+    console.log(`   Problems Identified:   ${problemsCount}`);
+    console.log(`   Fixes Suggested:       ${fixesCount}`);
+    console.log(`   Corrected Script:      ${hasCorrectedVersion ? "Generated" : "Missing"}`);
+    console.log(`   Agreement with Local:  ${evaluationAgreement ? "Yes (Both " + (localPass ? "Passed" : "Failed") + ")" : "No (Discrepancy)"}\n`);
 
     // PRINT SUMMARY
     console.log("==========================================");
     console.log("        LEVELGEN ENDPOINT METRICS         ");
     console.log("==========================================");
-    console.log(`1. Status Latency:    ${statusTime.toFixed(1)} ms`);
-    console.log(`2. RAG Search:        ${filesTime.toFixed(1)} ms`);
-    console.log(`3. Generation:        ${(genTime / 1000).toFixed(2)} s`);
-    console.log(`4. Evaluation:        ${(evalTime / 1000).toFixed(2)} s`);
+    console.log(`1. Status Latency:     ${statusTime.toFixed(1)} ms`);
+    console.log(`2. RAG Search:         ${filesTime.toFixed(1)} ms`);
+    console.log(`3. Generation:         ${(genTime / 1000).toFixed(2)} s`);
+    console.log(`4. Evaluation:         ${(evalTime / 1000).toFixed(2)} s`);
     console.log("------------------------------------------");
-    console.log(`Total Pipeline Time:  ${((statusTime + filesTime + genTime + evalTime) / 1000).toFixed(2)} s`);
+    console.log(`Total Pipeline Time:   ${((statusTime + filesTime + genTime + evalTime) / 1000).toFixed(2)} s`);
+    console.log(`Eval/Gen Time Ratio:   ${(evalTime / genTime).toFixed(2)}x`);
+    console.log("------------------------------------------");
+    console.log("          EVALUATION ANALYSIS            ");
+    console.log("------------------------------------------");
+    console.log(`Evaluation Format Check:  ${hasValidSchema ? "PASS" : "FAIL"}`);
+    console.log(`Syntax vs. Semantic Agree: ${evaluationAgreement ? "AGREE" : "DISAGREE"}`);
+    console.log(`Detected Bugs/Warnings:   Local: ${evalData.localEvaluation?.errors?.length || 0} | Model: ${problemsCount}`);
     console.log("==========================================\n");
 
   } catch (error) {
