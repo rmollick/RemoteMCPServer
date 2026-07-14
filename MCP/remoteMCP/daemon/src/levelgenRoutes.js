@@ -397,16 +397,28 @@ If unsure, copy the structure from the most relevant corrected/manual examples.
       const local = localEvaluate(script, mode);
 
       const evalPrompt = `
-Evaluate this generated ${mode} file against the project examples.
-Return JSON only with keys: score, pass, problems, fixes, corrected_version.
+You are an expert system that evaluates Unity LevelGen scripts for correctness.
 
+[CONTEXT PROJECT EXAMPLES]
 ${context}
 
-GENERATED FILE:
+[GENERATED FILE TO EVALUATE]
 ${script}
 
-LOCAL CHECK RESULTS:
+[LOCAL SYNTAX CHECK RESULTS]
 ${JSON.stringify(local, null, 2)}
+
+[INSTRUCTION]
+Evaluate the generated ${mode} file against the project examples.
+You MUST return a JSON object with the following schema:
+{
+  "score": <number between 0 and 100 representing quality>,
+  "pass": <true if the script is correct and ready to use, false if it has errors>,
+  "problems": <array of strings describing any issues found>,
+  "fixes": <array of strings describing how to fix the issues>,
+  "corrected_version": <string containing the corrected version of the script>
+}
+Do not return any other text, explanations, or keys. Only return the JSON object.
 `;
 
       const data = await callOllama({
