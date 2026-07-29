@@ -1,0 +1,14 @@
+{
+  "name": "cerebrum-ollama-rag-levelgen",
+  "version": "2.0.0",
+  "description": "Local Ollama + Gemma server that reads Cerebrum StreamingAssets/scenario/LevelGen files and generates new scripts or LevelGen files.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^4.22.2",
+    "multer": "^2.0.2"
+  }
+}

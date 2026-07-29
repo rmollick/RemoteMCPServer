@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Cerebrum Ollama RAG + LevelGen</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 1150px; margin: 24px auto; padding: 16px; background: #f3f4f6; color: #111827; }
+    h1 { margin-bottom: 4px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .box { background: white; padding: 18px; border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.08); margin-bottom: 16px; }
+    label { font-weight: 700; display: block; margin-top: 10px; }
+    textarea { width: 100%; min-height: 145px; font-size: 14px; padding: 10px; box-sizing: border-box; }
+    input, select, button { font-size: 14px; padding: 9px; margin-top: 5px; }
+    input[type="text"], input[type="number"] { width: 100%; box-sizing: border-box; }
+    button { cursor: pointer; font-weight: 700; border: 0; border-radius: 8px; background: #111827; color: white; padding: 10px 14px; }
+    button.secondary { background: #374151; }
+    button.good { background: #065f46; }
+    pre { background: #111827; color: #e5e7eb; padding: 14px; white-space: pre-wrap; min-height: 220px; border-radius: 10px; overflow: auto; }
+    .small { font-size: 13px; color: #4b5563; }
+    .files { max-height: 280px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
+    .file-row { display: grid; grid-template-columns: 24px 1fr 70px; gap: 6px; align-items: center; font-size: 12px; border-bottom: 1px solid #f3f4f6; padding: 5px 0; }
+    .badge { display: inline-block; background: #e5e7eb; padding: 3px 7px; border-radius: 999px; font-size: 12px; margin-right: 4px; }
+    .ok { color: #065f46; font-weight: 700; }
+    .warn { color: #92400e; font-weight: 700; }
+    .err { color: #991b1b; font-weight: 700; }
+    .top-nav {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+
+    .nav-btn {
+      display: inline-block;
+      padding: 14px 22px;
+      border-radius: 10px;
+      background: #374151;
+      color: white;
+      text-decoration: none;
+      font-weight: 800;
+      font-size: 18px;
+      transition: 0.15s ease;
+    }
+
+    .nav-btn:hover {
+      background: #1f2937;
+      transform: translateY(-1px);
+    }
+
+    .nav-btn.active {
+      background: #111827;
+    }
+  </style>
+</head>
+<body>
+  <div style="padding:10px; background:#111827; display:flex; gap:10px;">
+    <a href="/index.html" style="color:white; text-decoration:none; font-weight:bold;">Remote MCP Agent</a>
+    <a href="/levelgen.html" style="color:white; text-decoration:none; font-weight:bold;">LevelGen Generator</a>
+  </div>
+  <div class="box">
+    <div class="top-nav">
+      <a class="nav-btn active" href="levelgen.html">LevelGen Generator</a>
+      <a class="nav-btn" href="index.html">Remote MCP Agent</a>
+    </div>
+
+    <h1>Cerebrum Ollama RAG + LevelGen Generator</h1>
+    <p class="small">Reads your Unity <b>Assets/StreamingAssets</b>, scenario files, manual LevelGen files, and corrected LevelGen examples. Then it generates new scenario scripts or LevelGen room files using local Ollama.</p>
+    <button onclick="loadStatus()">Refresh Project Status</button>
+    <span id="statusLine" class="small">Waiting...</span>
+  </div>
+
+  <div class="grid">
+    <div class="box">
+      <h2>1) Generate</h2>
+      <label>Mode</label>
+      <select id="mode" onchange="applyModeTemplate(); loadFiles();">
+        <option value="levelgen">LevelGen room file</option>
+        <option value="scenario">Cerebrum scenario script</option>
+      </select>
+
+      <label>Output file name</label>
+      <input id="fileName" type="text" value="ManualStyle_MedRoom_AI" />
+
+      <label>Top reference files to include</label>
+      <input id="topK" type="number" value="12" min="3" max="30" />
+
+      <label>Prompt</label>
+      <textarea id="prompt"></textarea>
+
+      <label>Optional image/screenshot</label>
+      <input id="image" type="file" accept="image/*" />
+
+      <p>
+        <button class="good" onclick="generate()">Generate and Save</button>
+        <button class="secondary" onclick="evaluateCurrent()">Evaluate Current Output</button>
+      </p>
+      <p class="small">Tip: for LevelGen, first write and test a level manually, then put the corrected .txt in <b>corrected-levelgen-examples</b> and click Refresh.</p>
+    </div>
+
+    <div class="box">
+      <h2>2) Project Reference Files</h2>
+      <p class="small">These are files the AI can read. Check important files to force them into the prompt.</p>
+      <button onclick="loadFiles()">Refresh File Index</button>
+      <div id="fileList" class="files">No files loaded yet.</div>
+    </div>
+  </div>
+
+  <div class="box">
+    <h2>Generated Output</h2>
+    <div id="saveInfo" class="small"></div>
+    <pre id="output">Waiting...</pre>
+  </div>
+
+  <div class="box">
+    <h2>Evaluation</h2>
+    <pre id="evaluation">No evaluation yet.</pre>
+  </div>
+
+  <script>
+    function mode() { return document.getElementById("mode").value; }
+
+    function applyModeTemplate() {
+      if (mode() === "levelgen") {
+        document.getElementById("fileName").value = "ManualStyle_MedRoom_AI";
+        document.getElementById("prompt").value =
+`Generate a complex medical exam room LevelGen file based on the corrected/manual examples.
+Include a patient bed, patient, wall objects, sink/handwashing area, IV bottles/bags, vitals monitor, medical cart, chair, table, and supplies.
+Mimic the exact LevelGen row style from the examples. Output only the raw LevelGen file.`;
+      } else {
+        document.getElementById("fileName").value = "NurseHandWash_AI";
+        document.getElementById("prompt").value =
+`Create a Cerebrum script where the nurse washes their hands before checking on the patient.
+Use actual Do statements, not only Prompt statements.
+Include walking to sink, turning water on, applying soap, scrubbing, rinsing, drying hands, and returning to patient.
+Output only the raw .txt script.`;
+      }
+    }
+
+    async function loadStatus() {
+      const line = document.getElementById("statusLine");
+      line.textContent = "Loading...";
+      const res = await fetch("/api/status");
+      const data = await res.json();
+      line.innerHTML = `<span class="ok">Connected</span> | Model: ${data.model} | Files indexed: ${data.fileCount} | Project: ${data.projectRoot}`;
+      loadFiles();
+    }
+
+    async function loadFiles() {
+      const container = document.getElementById("fileList");
+      container.textContent = "Loading files...";
+      const prompt = encodeURIComponent(document.getElementById("prompt").value);
+      const res = await fetch(`/api/files?mode=${mode()}&prompt=${prompt}`);
+      const data = await res.json();
+      container.innerHTML = "";
+      for (const f of data.files.slice(0, 80)) {
+        const row = document.createElement("div");
+        row.className = "file-row";
+        const checked = f.rel.toLowerCase().includes("corrected") || f.rel.toLowerCase().includes("manual-levelgen");
+        row.innerHTML = `
+          <input type="checkbox" class="fileCheck" value="${escapeHtml(f.path)}" ${checked ? "checked" : ""}>
+          <span title="${escapeHtml(f.path)}">${escapeHtml(f.rel)}</span>
+          <span class="badge">${f.score}</span>
+        `;
+        container.appendChild(row);
+      }
+    }
+
+    function selectedPaths() {
+      return [...document.querySelectorAll(".fileCheck:checked")].map(x => x.value);
+    }
+
+    async function generate() {
+      const output = document.getElementById("output");
+      const info = document.getElementById("saveInfo");
+      output.textContent = "Generating with local Ollama...";
+      info.textContent = "";
+
+      const formData = new FormData();
+      formData.append("mode", mode());
+      formData.append("fileName", document.getElementById("fileName").value);
+      formData.append("prompt", document.getElementById("prompt").value);
+      formData.append("topK", document.getElementById("topK").value);
+      formData.append("selectedPaths", JSON.stringify(selectedPaths()));
+      const image = document.getElementById("image").files[0];
+      if (image) formData.append("image", image);
+
+      try {
+        const res = await fetch("/generate", { method: "POST", body: formData });
+        const data = await res.json();
+        if (!res.ok) {
+          output.textContent = JSON.stringify(data, null, 2);
+          return;
+        }
+        output.textContent = data.script;
+        info.innerHTML = `<span class="ok">Saved</span> ${escapeHtml(data.savedPath)}<br><span class="ok">Active</span> ${escapeHtml(data.activePath)}<br><span class="badge">Used ${data.usedFiles.length} reference files</span>`;
+        document.getElementById("evaluation").textContent = JSON.stringify(data.localEvaluation, null, 2);
+      } catch (err) {
+        output.textContent = "ERROR: " + err.message;
+      }
+    }
+
+    async function evaluateCurrent() {
+      const evaluation = document.getElementById("evaluation");
+      evaluation.textContent = "Evaluating with local checks + Ollama...";
+      const payload = {
+        mode: mode(),
+        script: document.getElementById("output").textContent,
+        prompt: document.getElementById("prompt").value
+      };
+      try {
+        const res = await fetch("/evaluate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        evaluation.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        evaluation.textContent = "ERROR: " + err.message;
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+    }
+
+    applyModeTemplate();
+    loadStatus();
+  </script>
+</body>
+</html>
