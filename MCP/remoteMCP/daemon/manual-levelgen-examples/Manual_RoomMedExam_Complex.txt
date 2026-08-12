@@ -1,13 +1,10 @@
 Room	0	RoomMedExam_base
 Bed	1	PatientBed01	Patient	1	PatientTemp
+Bed	2	ExaminationBed01
 Wall	1	Poster02
-Wall	2	Clock01
-Wall	3	Whiteboard01
-BedsideHead	1	RackInfusionBottle01	InfusionBottle	1	InfusionBottleLiquid03	InfusionBottle	2	InfusionBottleLiquid03
-BedsideMid	1	RackInfusionBag02	InfusionBag	1	InfusionBag01
-BedsideFoot	1	RackInfusionBag01	InfusionBag	1	InfusionBag04
-Counter	1	Sink01	SoapDispenser	1	SoapDispenser01	PaperTowel	1	PaperTowelDispenser01
-Table	1	TrayTable01	Clipboard	1	Clipboard01	MedicineCup	1	MedicineCup01
-Chair	1	VisitorChair01
-Monitor	1	VitalsMonitor01	MonitorScreen	1	VitalsMonitorScreen01
-Cart	1	MedicalCart01	Gloves	1	GloveBox01	Sanitizer	1	SanitizerBottle01
+Wall	2	XRayViewBox01
+Screen	1	PrivacyScreen01
+BedsideHead	1	RackInfusionBottle01	InfusionBottle	1	InfusionBottle01	InfusionBottleLiquid	1	InfusionBottleLiquid03	InfusionBottle	2	InfusionBottle02	InfusionBottleLiquid	2	InfusionBottleLiquid03
+BedsideMid	1	RackInfusionBag02	InfusionBag	1	InfusionBag04
+BedsideFoot	1	RackInfusionBag01	InfusionBag	1	InfusionBag01
+Cart	1	COW00	Computer	1	VitalsMonitor01	Misc	2	KidneyDish01	Misc	3	IVSet01	Misc	4	InfusionClamp01	Misc	5	LiquidSoap01	Misc	6	FoldedBloodPressureCuff01
