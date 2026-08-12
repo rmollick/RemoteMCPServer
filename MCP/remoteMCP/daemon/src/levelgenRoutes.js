@@ -1,6 +1,11 @@
 import fs from "fs";
 import path from "path";
 import multer from "multer";
+import {
+  ROOM_CONSTRAINTS,
+  guardLevelGenPrompt,
+  validateLevelGen
+} from "./levelgenConstraints.js";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -16,12 +21,15 @@ const LEVELGEN_DIR = path.join(STREAMING_ASSETS_DIR, "LevelGen");
 const DAEMON_ROOT = process.cwd();
 const LOCAL_MANUAL_DIR = path.join(DAEMON_ROOT, "manual-levelgen-examples");
 const LOCAL_CORRECTED_DIR = path.join(DAEMON_ROOT, "corrected-levelgen-examples");
+const LOCAL_SCENARIO_DIR = path.join(DAEMON_ROOT, "Scenario");
+const LOCAL_PATIENT_DIR = path.join(DAEMON_ROOT, "Patient");
 const MEMORY_PATH = path.join(DAEMON_ROOT, "Workspace Memory.txt");
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || process.env.LOCAL_MODEL || "gemma3:4b";
 
 const MAX_FILE_CHARS = 9000;
+const MAX_MEMORY_CHARS = 20000;
 const MAX_CONTEXT_CHARS = 42000;
 const DEFAULT_TOP_K = 12;
 
@@ -37,11 +45,11 @@ function exists(p) {
   }
 }
 
-function readTextSafe(filePath) {
+function readTextSafe(filePath, maxChars = MAX_FILE_CHARS) {
   try {
     const ext = path.extname(filePath).toLowerCase();
     if (!READABLE_EXTENSIONS.has(ext)) return "";
-    return fs.readFileSync(filePath, "utf8").slice(0, MAX_FILE_CHARS);
+    return fs.readFileSync(filePath, "utf8").slice(0, maxChars);
   } catch {
     return "";
   }
@@ -76,21 +84,26 @@ function getAllKnowledgeFiles() {
   files.push(...walkFiles(STREAMING_ASSETS_DIR));
   files.push(...walkFiles(LOCAL_MANUAL_DIR));
   files.push(...walkFiles(LOCAL_CORRECTED_DIR));
+  files.push(...walkFiles(LOCAL_SCENARIO_DIR));
+  files.push(...walkFiles(LOCAL_PATIENT_DIR));
 
   return [...new Set(files)]
     .map((filePath) => {
       const text = readTextSafe(filePath);
       const rel = projectRelative(filePath);
+      const relLower = rel.toLowerCase();
 
       const priority = filePath.includes("corrected-levelgen-examples")
         ? 1000
         : filePath.includes("manual-levelgen-examples")
           ? 800
-          : rel.toLowerCase().includes("levelgen")
+          : relLower.includes("levelgen")
             ? 300
-            : rel.toLowerCase().includes("scenario")
+            : relLower.includes("scenario")
               ? 200
-              : 100;
+              : relLower.includes("patient")
+                ? 200
+                : 100;
 
       return {
         path: filePath,
@@ -124,14 +137,20 @@ function scoreFile(file, prompt, mode) {
 
   if (mode === "levelgen" && rel.includes("levelgen")) score += 500;
   if (mode === "levelgen" && rel.includes("corrected")) score += 1000;
+  if (mode === "levelgen" && rel.includes("manual-levelgen")) score += 500;
+
   if (mode === "scenario" && rel.includes("scenario")) score += 500;
   if (mode === "scenario" && file.text.includes("Do '")) score += 250;
+
+  if (mode === "character" && (rel.includes("patient") || rel.includes("appearance"))) score += 700;
+  if (mode === "character" && rel.includes("createpatient")) score += 400;
+  if (mode === "character" && rel.includes("initializepatientappearance")) score += 500;
 
   return score;
 }
 
 function buildContext({ prompt, mode, selectedPaths = [], topK = DEFAULT_TOP_K }) {
-  const memory = exists(MEMORY_PATH) ? readTextSafe(MEMORY_PATH) : "";
+  const memory = exists(MEMORY_PATH) ? readTextSafe(MEMORY_PATH, MAX_MEMORY_CHARS) : "";
   const all = getAllKnowledgeFiles();
 
   const selectedSet = new Set(selectedPaths || []);
@@ -191,20 +210,30 @@ function getOutputDir(mode) {
     return process.env.LEVELGEN_OUTPUT_DIR || path.join(LEVELGEN_DIR, "Generated");
   }
 
+  if (mode === "character") {
+    return process.env.CHARACTER_OUTPUT_DIR || path.join(SCENARIOS_DIR, "Generated", "Character");
+  }
+
   return process.env.SCENARIO_OUTPUT_DIR || path.join(SCENARIOS_DIR, "Generated");
 }
 
-function localEvaluate(script, mode) {
+function activeFileName(mode) {
+  if (mode === "levelgen") return "ActiveGeneratedLevelGen.txt";
+  if (mode === "character") return "ActiveGeneratedCharacter.txt";
+  return "ActiveGeneratedScenario.txt";
+}
+
+function localEvaluate(script, mode, expectedRoomName = null) {
   const errors = [];
   const warnings = [];
 
-  const lines = script
+  const lines = String(script || "")
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
 
-  if (!script.trim()) errors.push("Generated file is empty.");
-  if (script.includes("```")) errors.push("Generated file still contains markdown code fences.");
+  if (!String(script || "").trim()) errors.push("Generated file is empty.");
+  if (String(script || "").includes("```")) errors.push("Generated file still contains markdown code fences.");
 
   if (mode === "scenario") {
     const validStarts = ["Do '", "Prompt '", "Wait ", "Return", "Label '", "Goto '", "If ", "Else", "Endif", "$", "//", "#"];
@@ -216,17 +245,17 @@ function localEvaluate(script, mode) {
     }
 
     if (!lines.some((l) => l.startsWith("Do '"))) warnings.push("No Do statements found.");
-    if (!lines[lines.length - 1]?.startsWith("Return")) warnings.push("Script does not end with Return.");
+    if (lines.length > 0 && !lines[lines.length - 1]?.startsWith("Return")) warnings.push("Script does not end with Return.");
+  }
+
+  if (mode === "character") {
+    if (!lines.some((l) => l.includes("Patient") || l.includes("$Patient"))) {
+      warnings.push("Character output does not appear to reference a patient.");
+    }
   }
 
   if (mode === "levelgen") {
-    if (!lines.some((l) => l.toLowerCase().startsWith("room"))) errors.push("No Room line found.");
-
-    for (const line of lines) {
-      if (line.startsWith("#") || line.startsWith("//")) continue;
-      const parts = line.split(/\t+| {2,}/).filter(Boolean);
-      if (parts.length < 3) warnings.push(`Possible short LevelGen row: ${line}`);
-    }
+    return validateLevelGen(script, expectedRoomName);
   }
 
   return {
@@ -253,6 +282,137 @@ async function callOllama(body) {
   return response.json();
 }
 
+function outputRulesForMode(mode, roomName) {
+  if (mode === "levelgen") {
+    return `Generate a LevelGen room file. Output only raw tab-separated LevelGen rows. The first row must be Room<TAB>0<TAB>${roomName}. Use only valid room slots, parent prefabs, child slots, and child prefabs from the workspace constraints. Never invent unsupported objects or slots.`;
+  }
+
+  if (mode === "character") {
+    return "Generate only the patient/character customization text. Use the Patient and appearance reference files. Do not generate LevelGen rows and do not generate unrelated scenario actions. Output only raw file content.";
+  }
+
+  return "Generate a Cerebrum scenario .txt file. Output only raw script lines. Use Do statements for real actions and Prompt only for visible dialogue. Do not generate LevelGen rows or character appearance configuration unless the scenario syntax requires a patient reference.";
+}
+
+function buildSequentialTasks(userPrompt) {
+  return {
+    levelgen: `PHYSICAL LEVELGEN TASK ONLY:\nFrom the overall user request below, generate only the physical room/environment setup. Do not write scenario behavior. Do not write detailed character appearance.\n\nOVERALL REQUEST:\n${userPrompt}`,
+
+    scenario: `SCENARIO TASK ONLY:\nFrom the overall user request below, generate only scenario behavior, actions, prompts, and clinical flow. Do not change the physical LevelGen room layout. Do not write detailed character appearance configuration.\n\nOVERALL REQUEST:\n${userPrompt}`,
+
+    character: `CHARACTER TASK ONLY:\nFrom the overall user request below, generate only patient/character creation or appearance customization using the available Patient/appearance references. Do not generate LevelGen rows. Do not generate scenario behavior.\n\nOVERALL REQUEST:\n${userPrompt}`
+  };
+}
+
+async function generateOneMode({
+  mode,
+  userPrompt,
+  fileName,
+  selectedPaths,
+  topK,
+  imageBase64 = null,
+  roomName = "RoomMedExam_base",
+  strictConstraints = true
+}) {
+  if (!userPrompt.trim()) {
+    return {
+      blocked: true,
+      status: 400,
+      stage: "input",
+      error: "Prompt is required."
+    };
+  }
+
+  if (mode === "levelgen" && strictConstraints) {
+    const promptProblems = guardLevelGenPrompt(userPrompt, roomName);
+    if (promptProblems.length > 0) {
+      return {
+        blocked: true,
+        status: 400,
+        stage: "prompt-guard",
+        error: "IMPOSSIBLE_LEVELGEN_REQUEST",
+        roomName,
+        problems: promptProblems
+      };
+    }
+  }
+
+  const { context, files } = buildContext({
+    prompt: userPrompt,
+    mode,
+    selectedPaths,
+    topK
+  });
+
+  const prompt = `
+You are connected to a local Unity/Cerebrum project.
+You must generate files based on the reference project files below.
+
+${context}
+
+TASK MODE: ${mode}
+${mode === "levelgen" ? `SELECTED ROOM: ${roomName}` : ""}
+USER REQUEST:
+${userPrompt}
+
+OUTPUT RULES:
+${outputRulesForMode(mode, roomName)}
+Do not explain.
+Do not use markdown.
+Do not invent a different file format.
+If unsure, copy the structure from the most relevant corrected/manual examples.
+`;
+
+  const ollamaBody = {
+    model: OLLAMA_MODEL,
+    prompt,
+    stream: false
+  };
+
+  if (imageBase64) {
+    ollamaBody.images = [imageBase64];
+  }
+
+  const data = await callOllama(ollamaBody);
+  const script = cleanGenerated(data.response || "");
+  const evaluation = localEvaluate(script, mode, mode === "levelgen" ? roomName : null);
+
+  if (mode === "levelgen" && strictConstraints && !evaluation.pass) {
+    return {
+      blocked: true,
+      status: 422,
+      stage: "output-validator",
+      error: "GENERATED_LEVELGEN_FAILED_HARD_CONSTRAINTS",
+      roomName,
+      script,
+      localEvaluation: evaluation,
+      usedFiles: files
+    };
+  }
+
+  const outputDir = getOutputDir(mode);
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const safeName = safeFileName(fileName);
+  const savedPath = path.join(outputDir, `${safeName}.txt`);
+  const activePath = path.join(outputDir, activeFileName(mode));
+
+  fs.writeFileSync(savedPath, script, "utf8");
+  fs.writeFileSync(activePath, script, "utf8");
+
+  return {
+    blocked: false,
+    script,
+    savedPath,
+    activePath,
+    mode,
+    model: OLLAMA_MODEL,
+    roomName: mode === "levelgen" ? roomName : undefined,
+    usedFiles: files,
+    localEvaluation: evaluation
+  };
+}
+
 export function installLevelGenRoutes(app) {
   app.get("/api/status", (req, res) => {
     const files = getAllKnowledgeFiles();
@@ -264,8 +424,13 @@ export function installLevelGenRoutes(app) {
       levelgenDir: LEVELGEN_DIR,
       localManualDir: LOCAL_MANUAL_DIR,
       localCorrectedDir: LOCAL_CORRECTED_DIR,
+      localScenarioDir: LOCAL_SCENARIO_DIR,
+      localPatientDir: LOCAL_PATIENT_DIR,
+      memoryPath: MEMORY_PATH,
+      memoryCharsLoaded: exists(MEMORY_PATH) ? readTextSafe(MEMORY_PATH, MAX_MEMORY_CHARS).length : 0,
       model: OLLAMA_MODEL,
       ollamaUrl: OLLAMA_URL,
+      supportedRooms: Object.keys(ROOM_CONSTRAINTS),
       fileCount: files.length,
       sampleFiles: files.slice(0, 30).map((f) => ({
         rel: f.rel,
@@ -297,85 +462,126 @@ export function installLevelGenRoutes(app) {
     try {
       const mode = req.body.mode || "scenario";
       const userPrompt = req.body.prompt || "";
-      const fileName = safeFileName(
-        req.body.fileName || (mode === "levelgen" ? "GeneratedLevel" : "GeneratedScenario")
-      );
-
+      const roomName = req.body.roomName || "RoomMedExam_base";
+      const strictConstraints = String(req.body.strictConstraints ?? "true") !== "false";
+      const defaultName = mode === "levelgen"
+        ? "GeneratedLevel"
+        : mode === "character"
+          ? "GeneratedCharacter"
+          : "GeneratedScenario";
+      const fileName = req.body.fileName || defaultName;
       const selectedPaths = req.body.selectedPaths ? JSON.parse(req.body.selectedPaths) : [];
       const topK = Number(req.body.topK || DEFAULT_TOP_K);
+      const imageBase64 = req.file ? req.file.buffer.toString("base64") : null;
+
+      const result = await generateOneMode({
+        mode,
+        userPrompt,
+        fileName,
+        selectedPaths,
+        topK,
+        imageBase64,
+        roomName,
+        strictConstraints
+      });
+
+      if (result.blocked) {
+        return res.status(result.status || 400).json(result);
+      }
+
+      res.json(result);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({
+        error: "Server error.",
+        details: err.message
+      });
+    }
+  });
+
+  app.post("/generate-sequential", upload.single("image"), async (req, res) => {
+    try {
+      const userPrompt = req.body.prompt || "";
+      const roomName = req.body.roomName || "RoomMedExam_base";
+      const strictConstraints = String(req.body.strictConstraints ?? "true") !== "false";
+      const baseName = safeFileName(req.body.fileName || "SequentialGeneration");
+      const selectedPaths = req.body.selectedPaths ? JSON.parse(req.body.selectedPaths) : [];
+      const topK = Number(req.body.topK || DEFAULT_TOP_K);
+      const imageBase64 = req.file ? req.file.buffer.toString("base64") : null;
 
       if (!userPrompt.trim()) {
         return res.status(400).json({ error: "Prompt is required." });
       }
 
-      const { context, files } = buildContext({
-        prompt: userPrompt,
-        mode,
+      const tasks = buildSequentialTasks(userPrompt);
+      const results = {};
+
+      results.levelgen = await generateOneMode({
+        mode: "levelgen",
+        userPrompt: tasks.levelgen,
+        fileName: `${baseName}_LevelGen`,
         selectedPaths,
-        topK
+        topK,
+        imageBase64,
+        roomName,
+        strictConstraints
       });
 
-      const outputRules =
-        mode === "levelgen"
-          ? "Generate a LevelGen room file. Output only raw LevelGen rows. Use tab-separated columns when possible. Start with a Room row. Mimic corrected examples first."
-          : "Generate a Cerebrum scenario .txt file. Output only raw script lines. Use Do statements for real actions and Prompt only for visible dialogue.";
-
-      const prompt = `
-You are connected to a local Unity/Cerebrum project.
-You must generate files based on the reference project files below.
-
-${context}
-
-TASK MODE: ${mode}
-USER REQUEST:
-${userPrompt}
-
-OUTPUT RULES:
-${outputRules}
-Do not explain.
-Do not use markdown.
-Do not invent a different file format.
-If unsure, copy the structure from the most relevant corrected/manual examples.
-`;
-
-      const ollamaBody = {
-        model: OLLAMA_MODEL,
-        prompt,
-        stream: false
-      };
-
-      if (req.file) {
-        ollamaBody.images = [req.file.buffer.toString("base64")];
+      if (results.levelgen.blocked) {
+        return res.status(results.levelgen.status || 400).json({
+          error: "Sequential generation stopped at LevelGen.",
+          stoppedAt: "levelgen",
+          results
+        });
       }
 
-      const data = await callOllama(ollamaBody);
-      const script = cleanGenerated(data.response || "");
+      results.scenario = await generateOneMode({
+        mode: "scenario",
+        userPrompt: tasks.scenario,
+        fileName: `${baseName}_Scenario`,
+        selectedPaths,
+        topK,
+        imageBase64: null,
+        roomName,
+        strictConstraints: false
+      });
 
-      const outputDir = getOutputDir(mode);
-      fs.mkdirSync(outputDir, { recursive: true });
+      if (results.scenario.blocked) {
+        return res.status(results.scenario.status || 400).json({
+          error: "Sequential generation stopped at Scenario.",
+          stoppedAt: "scenario",
+          results
+        });
+      }
 
-      const savedPath = path.join(outputDir, `${fileName}.txt`);
-      const activePath = path.join(
-        outputDir,
-        mode === "levelgen" ? "ActiveGeneratedLevelGen.txt" : "ActiveGeneratedScenario.txt"
-      );
+      results.character = await generateOneMode({
+        mode: "character",
+        userPrompt: tasks.character,
+        fileName: `${baseName}_Character`,
+        selectedPaths,
+        topK,
+        imageBase64: null,
+        roomName,
+        strictConstraints: false
+      });
 
-      fs.writeFileSync(savedPath, script, "utf8");
-      fs.writeFileSync(activePath, script, "utf8");
+      if (results.character.blocked) {
+        return res.status(results.character.status || 400).json({
+          error: "Sequential generation stopped at Character.",
+          stoppedAt: "character",
+          results
+        });
+      }
 
       res.json({
-        script,
-        savedPath,
-        activePath,
-        mode,
-        model: OLLAMA_MODEL,
-        usedFiles: files,
-        localEvaluation: localEvaluate(script, mode)
+        ok: true,
+        order: ["levelgen", "scenario", "character"],
+        results
       });
     } catch (err) {
       console.error(err);
       res.status(500).json({
-        error: "Server error.",
+        error: "Sequential generation error.",
         details: err.message
       });
     }
@@ -386,6 +592,7 @@ If unsure, copy the structure from the most relevant corrected/manual examples.
       const mode = req.body.mode || "scenario";
       const script = req.body.script || "";
       const prompt = req.body.prompt || "Evaluate this generated file.";
+      const roomName = req.body.roomName || "RoomMedExam_base";
 
       const { context, files } = buildContext({
         prompt,
@@ -394,7 +601,7 @@ If unsure, copy the structure from the most relevant corrected/manual examples.
         topK: 8
       });
 
-      const local = localEvaluate(script, mode);
+      const local = localEvaluate(script, mode, mode === "levelgen" ? roomName : null);
 
       const evalPrompt = `
 Evaluate this generated ${mode} file against the project examples.

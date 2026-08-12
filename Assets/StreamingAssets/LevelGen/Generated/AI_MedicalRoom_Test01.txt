@@ -1,0 +1,86 @@
+Room	0	RoomMedExam_base
+Bed	1	PatientBed01	Patient	1	PatientTemp
+Bed	2	ExaminationBed01	Patient	2	PatientTemp
+Bed	3	PatientBed02	Patient	3	PatientTemp
+Bed	4	PatientBed03	Patient	4	PatientTemp
+Bed	5	PatientBed04	Patient	5	PatientTemp
+Bed	6	PatientBed05	Patient	6	PatientTemp
+Bed	7	PatientBed06	Patient	7	PatientTemp
+Bed	8	PatientBed07	Patient	8	PatientTemp
+Bed	9	PatientBed08	Patient	9	PatientTemp
+Wall	1	Poster02
+Wall	2	Poster03
+Wall	3	XRayViewBox01
+Wall	4	Poster04
+Wall	5	Poster05
+Wall	6	Poster06
+Wall	7	Poster07
+Wall	8	Poster08
+Wall	9	Poster09
+Screen	1	PrivacyScreen01
+Screen	2	PrivacyScreen02
+Screen	3	PrivacyScreen03
+Screen	4	PrivacyScreen04
+Screen	5	PrivacyScreen05
+Screen	6	PrivacyScreen06
+Screen	7	PrivacyScreen07
+Screen	8	PrivacyScreen08
+Screen	9	PrivacyScreen09
+BedsideHead	1	RackInfusionBottle01	InfusionBottle	1	InfusionBottleLiquid	1	InfusionBottleLiquid03	InfusionBottle	2	InfusionBottleLiquid	2	InfusionBottleLiquid03
+BedsideMid	1	RackInfusionBag02	InfusionBag	1	InfusionBag01
+BedsideMid	2	RackInfusionBag02	InfusionBag	2	InfusionBag01
+BedsideMid	3	RackInfusionBag02	InfusionBag	3	InfusionBag01
+BedsideMid	4	RackInfusionBag02	InfusionBag	4	InfusionBag01
+BedsideMid	5	RackInfusionBag02	InfusionBag	5	InfusionBag01
+BedsideMid	6	RackInfusionBag02	InfusionBag	6	InfusionBag01
+BedsideMid	7	RackInfusionBag02	InfusionBag	7	InfusionBag01
+BedsideMid	8	RackInfusionBag02	InfusionBag	8	InfusionBag01
+BedsideMid	9	RackInfusionBag02	InfusionBag	9	InfusionBag01
+BedsideFoot	1	RackInfusionBag01	InfusionBag	1	InfusionBag04
+BedsideFoot	2	RackInfusionBag01	InfusionBag	2	InfusionBag04
+BedsideFoot	3	RackInfusionBag01	InfusionBag	3	InfusionBag04
+BedsideFoot	4	RackInfusionBag01	InfusionBag	4	InfusionBag04
+BedsideFoot	5	RackInfusionBag01	InfusionBag	5	InfusionBag04
+BedsideFoot	6	RackInfusionBag01	InfusionBag	6	InfusionBag04
+BedsideFoot	7	RackInfusionBag01	InfusionBag	7	InfusionBag04
+BedsideFoot	8	RackInfusionBag01	InfusionBag	8	InfusionBag04
+BedsideFoot	9	RackInfusionBag01	InfusionBag	9	InfusionBag04
+BedsideHeadLeft	1	MonitorStand02	Computer	1	VitalsMonitor01
+BedsideHeadLeft	2	MonitorStand02	Computer	2	VitalsMonitor01
+BedsideHeadLeft	3	MonitorStand02	Computer	3	VitalsMonitor01
+BedsideHeadLeft	4	MonitorStand02	Computer	4	VitalsMonitor01
+BedsideHeadLeft	5	MonitorStand02	Computer	5	VitalsMonitor01
+BedsideHeadLeft	6	MonitorStand02	Computer	6	VitalsMonitor01
+BedsideHeadLeft	7	MonitorStand02	Computer	7	VitalsMonitor01
+BedsideHeadLeft	8	MonitorStand02	Computer	8	VitalsMonitor01
+BedsideHeadLeft	9	MonitorStand02	Computer	9	VitalsMonitor01
+Cart	1	COW00	Computer	1	ComputerSetCOW01	Misc	2	KidneyDish01	Misc	3	IVSet01	Misc	4	InfusionClamp01	Misc	5	LiquidSoap01	Misc	6	FoldedBloodPressureCuff01	Misc	7	Cannula01
+Cart	2	COW00	Computer	2	ComputerSetCOW01	Misc	2	KidneyDish02	Misc	3	IVSet01	Misc	4	InfusionClamp01	Misc	5	LiquidSoap01	Misc	6	FoldedBloodPressureCuff01	Misc	7	Cannula01
+Cart	3	COW00	Computer	3	ComputerSetCOW01	Misc	3	KidneyDish01	Misc	4	InfusionClamp01	Misc	5	LiquidSoap01	Misc	6	FoldedBloodPressureCuff01	Misc	7	Cannula01
+Cart	4	COW00	Computer	4	ComputerSetCOW01	Misc	4	KidneyDish02	Misc	5	InfusionClamp01	Misc	6	LiquidSoap01	Misc	7	Cannula01
+Cart	5	COW00	Computer	5	ComputerSetCOW01	Misc	5	KidneyDish01	Misc	6	InfusionClamp01	Misc	7	Cannula01
+Cart	6	COW00	Computer	6	ComputerSetCOW01	Misc	6	KidneyDish02	Misc	7	InfusionClamp01	Misc	8	LiquidSoap01	Misc	9	FoldedBloodPressureCuff01
+Cart	7	COW00	Computer	7	ComputerSetCOW01	Misc	7	KidneyDish01	Misc	8	InfusionClamp01	Misc	9	LiquidSoap01	Misc	10	FoldedBloodPressureCuff01
+Cart	8	COW00	Computer	8	ComputerSetCOW01	Misc	8	KidneyDish02	Misc	9	InfusionClamp01	Misc	10	LiquidSoap01	Misc	11	FoldedBloodPressureCuff01
+Cart	9	COW00	Computer	9	ComputerSetCOW01	Misc	9	KidneyDish01	Misc	10	InfusionClamp01	Misc	11	LiquidSoap01	Misc	12	FoldedBloodPressureCuff01
+Nurse	1	NurseClickable01
+Nurse	2	Placeholder
+Nurse	3	NurseClickable01
+Nurse	4	Placeholder
+Nurse	5	NurseClickable01
+Nurse	6	Placeholder
+Nurse	7	NurseClickable01
+Nurse	8	Placeholder
+Nurse	9	NurseClickable01
+Desk	3	DeskSet02	Computer	1	ComputerSetCOW01	Phone	2	Telephone01	Document	3	DocGXMForm	Document	4	IDLabel01
+Desk	4	DeskSet02	Computer	2	ComputerSetCOW01	Phone	3	Telephone01	Document	4	DocGXMForm	Document	5	IDLabel01
+Desk	5	DeskSet02	Computer	3	ComputerSetCOW01	Phone	4	Telephone01	Document	5	DocGXMForm	Document	6	IDLabel01
+Desk	6	DeskSet02	Computer	4	ComputerSetCOW01	Phone	5	Telephone01	Document	6	DocGXMForm	Document	7	IDLabel01
+Desk	7	DeskSet02	Computer	5	ComputerSetCOW01	Phone	6	Telephone01	Document	7	DocGXMForm	Document	8	IDLabel01
+Desk	8	DeskSet02	Computer	6	ComputerSetCOW01	Phone	7	Telephone01	Document	8	DocGXMForm	Document	9	IDLabel01
+Desk	9	DeskSet02	Computer	7	ComputerSetCOW01	Phone	8	Telephone01	Document	9	DocGXMForm	Document	10	IDLabel01
+Bin	1	WastebinScene06
+Bin	2	WastebinScene06
+Bin	3	Wastebin01
+Bin	4	WastebinScene06
+Bin	5	Wastebin
