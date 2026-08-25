@@ -41,10 +41,13 @@
     <div class="box">
       <h2>1) Generate</h2>
       <label>Mode</label>
-      <select id="mode" onchange="applyModeTemplate(); loadFiles();">
+      <select id="mode" onchange="applyModeTemplate(); updateContextBadge(); loadFiles();">
         <option value="levelgen">LevelGen room file</option>
         <option value="scenario">Cerebrum scenario script</option>
       </select>
+      <div id="activeContextInfo" style="margin-top: 8px; font-weight: bold; color: #065f46; display: none;">
+        ✓ Active LevelGen Context Loaded (Scenario will match the active layout)
+      </div>
 
       <label>Output file name</label>
       <input id="fileName" type="text" value="ManualStyle_MedRoom_AI" />
@@ -76,6 +79,9 @@
   <div class="box">
     <h2>Generated Output</h2>
     <div id="saveInfo" class="small"></div>
+    <div style="margin-top: 8px; margin-bottom: 8px;">
+      <button id="proceedBtn" class="good" style="display: none;" onclick="proceedToScenario()">Proceed to Scenario Prompting</button>
+    </div>
     <pre id="output">Waiting...</pre>
   </div>
 
@@ -137,6 +143,29 @@ Output only the raw .txt script.`;
       return [...document.querySelectorAll(".fileCheck:checked")].map(x => x.value);
     }
 
+    let hasGeneratedLevelGen = false;
+
+    function updateContextBadge() {
+      const badge = document.getElementById("activeContextInfo");
+      if (mode() === "scenario" && hasGeneratedLevelGen) {
+        badge.style.display = "block";
+      } else {
+        badge.style.display = "none";
+      }
+    }
+
+    function proceedToScenario() {
+      document.getElementById("mode").value = "scenario";
+      document.getElementById("fileName").value = "NurseSequence_MatchingLevelGen";
+      document.getElementById("prompt").value =
+`Create a Cerebrum scenario script that matches the layout of the previously generated levelgen.
+Refer ONLY to locations and objects that were generated in the levelgen layout above (e.g. Bed 1, BedsideHead 1, etc.).
+Include Do statements for the nurse's sequence of actions.`;
+      document.getElementById("proceedBtn").style.display = "none";
+      updateContextBadge();
+      loadFiles();
+    }
+
     async function generate() {
       const output = document.getElementById("output");
       const info = document.getElementById("saveInfo");
@@ -162,6 +191,14 @@ Output only the raw .txt script.`;
         output.textContent = data.script;
         info.innerHTML = `<span class="ok">Saved</span> ${escapeHtml(data.savedPath)}<br><span class="ok">Active</span> ${escapeHtml(data.activePath)}<br><span class="badge">Used ${data.usedFiles.length} reference files</span>`;
         document.getElementById("evaluation").textContent = JSON.stringify(data.localEvaluation, null, 2);
+        
+        if (mode() === "levelgen") {
+          hasGeneratedLevelGen = true;
+          document.getElementById("proceedBtn").style.display = "inline-block";
+        } else {
+          document.getElementById("proceedBtn").style.display = "none";
+        }
+        updateContextBadge();
       } catch (err) {
         output.textContent = "ERROR: " + err.message;
       }

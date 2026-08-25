@@ -90,9 +90,13 @@ const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT
   : process.cwd();
 
 // Normalize once (important on Windows)
-const WORKSPACE_ROOT_REAL = fs.existsSync(WORKSPACE_ROOT)
-  ? fs.realpathSync.native(WORKSPACE_ROOT)
-  : WORKSPACE_ROOT;
+const WORKSPACE_ROOT_REAL = (() => {
+  if (fs.existsSync(WORKSPACE_ROOT)) {
+    return fs.realpathSync.native(WORKSPACE_ROOT);
+  }
+  console.warn(`⚠️ Workspace root "${WORKSPACE_ROOT}" does not exist. Falling back to current directory.`);
+  return fs.realpathSync.native(process.cwd());
+})();
 
 function toPosix(p) {
   return String(p || "").replaceAll("\\", "/");

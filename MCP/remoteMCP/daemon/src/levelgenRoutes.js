@@ -150,7 +150,10 @@ function scoreFile(file, prompt, mode) {
 }
 
 function buildContext({ prompt, mode, selectedPaths = [], topK = DEFAULT_TOP_K }) {
-  const memory = exists(MEMORY_PATH) ? readTextSafe(MEMORY_PATH, MAX_MEMORY_CHARS) : "";
+  const memoryPath = mode === "scenario"
+    ? path.join(path.dirname(MEMORY_PATH), "Workspace Memory Scenario.txt")
+    : MEMORY_PATH;
+  const memory = exists(memoryPath) ? readTextSafe(memoryPath, MAX_MEMORY_CHARS) : "";
   const all = getAllKnowledgeFiles();
 
   const selectedSet = new Set(selectedPaths || []);
@@ -173,6 +176,17 @@ function buildContext({ prompt, mode, selectedPaths = [], topK = DEFAULT_TOP_K }
   }
 
   context += "\nREFERENCE FILES END\n";
+
+  if (mode === "scenario") {
+    const levelgenOutputDir = getOutputDir("levelgen");
+    const activeLevelGenPath = path.join(levelgenOutputDir, "ActiveGeneratedLevelGen.txt");
+    if (exists(activeLevelGenPath)) {
+      const activeText = readTextSafe(activeLevelGenPath);
+      if (activeText.trim()) {
+        context = `GENERATED LEVELGEN LAYOUT (YOU MUST MATCH THIS EXACT LAYOUT):\n${activeText}\n\n${context}`;
+      }
+    }
+  }
 
   return {
     context,

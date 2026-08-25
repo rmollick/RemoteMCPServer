@@ -1,0 +1,1850 @@
+﻿Cerebrum™ Scripting Guide (V1.2.0)
+4/12/23
+*The Cerebrum libraries, scenario language, and source code are Copyright © 2021-2023 Deep Brook Software LLC.  All rights reserved.
+
+
+Cerebrum™ Scripting Guide (V1.2.0)        1
+Overview        3
+Scenario Files        5
+Game Manager        5
+Object Message Handlers        6
+RoomGenerator        8
+Installation and Configuration        9
+GameManager        13
+Debugging        13
+Scenario Files        14
+Scenarios as Functions        15
+Do call        15
+Do Parameters        15
+Return Values        16
+Unload Command        17
+Multiple Functions in Scenario File        18
+GameManager commands/statements        19
+ObjectMessageHandlers        21
+ObjectMessageHandlerBase (OMHB) commands:        21
+Expressions        22
+Math Functions        23
+Assignment Operator =        24
+Assignment Variable Operator $$        25
+Assignment Eval Operator =$        25
+DoChoice/Choices command        26
+Arrays        27
+Pseudo-Arrays        27
+Bracket Array/Dictionary Notation        27
+Conditionals        29
+Branching        29
+Pseudo-Functions using Do command        30
+OMH Return Values        30
+Multiple Game Managers        32
+Global Variable Manager        33
+ObjectMessageHandlerBase commands:        34
+ObjectMessageHandler (OMH) commands:        41
+User Input        41
+Multiple Choice Input: Menu. commands        42
+Text Input: getValue Command        42
+Custom ObjectMessageHandlers (OMHs)        43
+GetEvaluatedParameters        44
+Sample Scenario File        45
+Character Extensions (not in Cerebrum)        47
+OMHHuman commands:        47
+OMHPatient commands:        47
+________________
+
+
+Overview
+
+
+Cerebrum is the GameManager/ObjectMessageHandler/LevelGenerator package which manages dynamic level generation, scenario logic, and scene intelligence. It is currently under development so the syntax and grammar are changing as it grows.  
+
+
+Why Cerebrum?
+The goal of Cerebrum is to make reusable components which are external to the game application/executable, so that changes to an existing simulation or creation of new simulations or variations can be quickly and easily made.  Goals and benefits include:
+* Most of game is dynamic through extensive use of StreamingAssets
+* Logic and scenes can be changed without game rebuilds
+* Existing C# routines can be simply and quickly integrated for complex behaviors
+* Assets/scenes can be dynamically loaded/created at runtime.
+* Assets can be dynamically changed/updated at any time.
+* Can co-exist/work-with existing projects/code.
+* New commands can be easily added to the language through Message Handlers.
+* Variable and expressions support permits easy reference of GameObjects
+* Supports logic, loops, variables, expressions, and psuedo-arrays (dictionaries)
+* Short-hand name access for finding GameObjects in a hierarchy.
+
+
+In Cerebrum, scripts are called Scenarios and are stored in Scenario Files.  With Cerebrum, your game world can be modified simply by changing variables in external Scenario files.  For example, the following scenario file Bed2.txt defines variables associated with Bed #2:
+
+
+
+
+#########################################
+#Bed2.txt
+#########################################
+
+Do 'Setup.txt'
+$BedNumber = '2'
+$Bed = 'Bed'+ BedNumber
+$Patient = Bed + '/Placeholder(Clone)'
+
+
+$BedOxyTarget = Bed + '/Oxygen'
+#Prompt.Offset 0.4
+Wait 1
+
+
+and PatientNews1.txt defines how a particular patient is created for that bed in the scene:
+
+
+#########################################
+#  PATIENTNEWS1 INFO INIT - Transient ischemic attack then develop to stroke
+#########################################
+$PatientName = 'Lim Ah Nee'
+$isEWS = 'true'
+$PatientIC = 'S1112223A'
+$BloodType = 'B-'
+$AgeInYears = 73
+$PatientModel = 'uAvatar'
+$PatientDiag = 'Tear of the distal supraspinatus tendon'
+$PatientGender = 'Male'
+$PatientSummary = 'Mr ‘ + $PatientName  + ‘, admitted electively for left shoulder arthroscopic cuff repair. He has past medical history of diabetes mellitus. Post op instruction: hourly parameter for the next 4 hours.'
+$PatientType = 'News1'
+### Set patient vitals
+$Temperature = 36.5
+$HR = 70
+$BP = '150/71'
+$BPSys = 150
+$Respiration = 20
+$SpO2 = 100
+$PainScore = 'Pain Score: 0/10'
+$AbnormalResponse = 'Patient is showing the signs and symptoms of stroke.'
+$PatientSpeak = 'Hi! I am generally good, however I feel a funny feeling on my face and I have trouble speaking properly. Is this normal post operation? '
+#########################################
+# SETUP TYPE OF MODEL
+#########################################
+$PatientObjName = 'PatientNewsA_B' + BedNumber
+Create $PatientModel $PatientObjName
+$PatientBedLoc = $Patient
+$PatientObjName align $PatientBedLoc 0
+$Patient = PatientObjName
+
+
+$RigType = 'uAvatar'
+Do 'Rigs/RigExtras.txt'
+Do 'NEWS_Nurse/SetupPatient.txt'
+
+
+### Setup how patient looks
+$HeadAmount = 80.0
+$WeightAmount = 20.0
+Do 'NEWS_Nurse/PatientCreations/Age/75.txt'
+Do 'NEWS_Nurse/PatientCreations/Head/Head3.txt'
+Do 'NEWS_Nurse/PatientCreations/Height/Short.txt'
+Do 'NEWS_Nurse/PatientCreations/Weight/Weight.txt'
+Do 'NEWS_Nurse/PatientCreations/Expressions/Frown.txt'
+________________
+Scenario Files
+In Cerebrum, scripts are called Scenarios and are stored in Scenario Files located under the Assets/StreamingAssets folder.  These files have a .txt extension.  
+ Graphical user interface, text
+
+Description automatically generated with medium confidence 
+
+Scenario File scripts handle variables and logic, and pass commands to the GameObjects in a scene for them to do certain things, like move, play animations or sounds, get input, or custom complex behaviors.
+
+
+
+
+Game Manager
+Cerebrum’s GameManager (GM) parses the Scenario File(s) and handles certain commands and statements, logic and flow, as well as evaluating expressions and variables.  MyGameManager is the base class which handles the processing of the scenario files.  GameManager extends it to support Unity’s Addressables system for having modular scene/environment assets.
+
+
+Any commands not handled by it are assumed to be for another Unity GameObject (GO), and the GM tries to identify the named GO and pass the command string to it.  Commands (in bold) include:
+* $Cart moveTo $newPosition
+* $Patient speak “Hello”
+* $Nurse grab $KidneyDish
+where the $ are varaibles referencing Unity GameObjects (GOs).
+
+
+________________
+
+
+Object Message Handlers
+All Unity GameObjects can receive Cerebrum commands through Message Handler components (MH), which act like native functions.  If a GameObject doesn’t have a message handler component, the GameManager will add the default ObjectMessageHandlerBase to it so it can receive messages. The GO’s ObjectMessageHandler (OMH) is a component which can inherit from the ObjectMessageHandlerBase component (OMHB).  The OMHB understands built-in commands such as moveTo, rotateY , etc.  The OMH adds additional commands and can be modified by the developer.  Any OMH class that inherits the OMHB will be called if the OMHB does not recognize one of the commands, which allows the developer to add arbitrary commands to the language.  In addition, the developer can directly inherit from the OMHB class to make their own MessageHandler compoents to extend the language through adding a HandleMessagefunction.  To add support for telling GameObjects to spin around a number of times over a period of seconds:
+Chair SpinAround 5 3  #have the chair object spin 5 times over 3 seconds
+
+we could add the command SpinAround to the OMH’s HandleMessage function:
+
+
+    public override bool HandleMessage(string msg, string param, out string retString)
+        if (msg=="spinaround")
+        {
+            //parse the parameters and execute the spin
+
+
+Note: All keywords/commands in the GM and OMHB are NOT case-sensitive and are changed to lowercase before HandleMessage is called.
+
+
+IMPORTANT: All parameters come in as one param string, so the developer must split and parse this string if it contains multiple parameters.  Each parameter should also be evaluated as it may be an expression, variable, number, or string.
+
+
+Another example of this is the VitalsMH.cs component which handles commands sent to the VitalsMonitor.  It’s message handler supports the handling of one message called “setVitals” which sets 4 parameters (heart rate, pulseOx, blood pressure, and respiratory rate) on the in-game vitals monitor:
+________________
+
+
+    public override bool HandleMessage(string msg, string param, out string retString)
+    {
+        retString = null;
+        bool retv = base.HandleMessage(msg,param,out retString);
+        if (commandFound)
+            return retv;
+       if (msg == "setvitals"){
+            char[] separators = new char[] { ' ','\t'};
+
+
+            string[] temp = param.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+            if (temp.Length > 0){
+                param = temp[0];
+                if (param != null && param[0] == '$') 
+                    param =  ep.EvaluateParam(param);
+                HRate = int.Parse(param);
+                HRateText.text = param;
+            }
+            if (temp.Length > 1){
+                param = temp[1];
+                if (param != null && param[0] == '$') 
+                    param =  ep.EvaluateParam(param);
+                SpO2 = int.Parse(param);
+                SpO2Text.text = param;
+            }
+            if (temp.Length > 2){
+                param = temp[2];
+                if (param != null && param[0] == '$') 
+                    param =  ep.EvaluateParam(param);
+                Pressure = param;
+                PressureText.text = param;
+            }
+            if (temp.Length > 3){
+                param = temp[3];
+                if (param != null && param[0] == '$') 
+                    param =  ep.EvaluateParam(param);
+                RespRate = int.Parse(param);
+                RespRateText.text = param;
+            }
+
+
+            heartRateMonitor.BeatsPerMinute = HRate;
+            return true;
+        }
+        return false;
+    }
+
+
+Please refer to the Scenario Files in StreamingAssets for numerous examples beyond this guide.
+
+
+
+
+RoomGenerator
+Scenes can be dynamically created and loaded based on text file definitions in StreamingAssets/LevelGen.
+
+
+In Cerebrun scenes, there is a RoomGenerator which uses Unity Addressables (https://docs.unity3d.com/Manual/com.unity.addressables.html)
+to dynamically create levels, as well as reference GameObjects by their Addressables’ name.  
+
+
+The RoomGenerator also can launch and support multiple GameManagers which run concurrently.  This can be used to have GameManagers running independently to monitor/manage individual characters such as multiple patients, with each patient running its own copy of the scenario files, and therefore having its own local copy of variables.  The RoomGenerator is beyond the scope of this guide and has its own guide, the Cerebrum Level Generator Guide.  In addition, the Cerebrum Addressables Guide is a companion which discusses Unity’s Addressables system.
+________________
+
+
+Installation and Configuration
+
+
+Requires the use of Unity 2019.3.13f1 or later. Scriptable Render Pipelines (URP/HDRP) are not supported currently.
+
+
+1. Install the Unity Addressables Package
+* Cerebrum requires the Addressables package be installed:
+   * Window->Package Manager->Addressables (Version 1.17 or higher)
+      * Search for Addressables under Packages: Unity Registry
+ A picture containing text, screenshot, software, multimedia software
+
+Description automatically generated 
+
+* Older versions of Unity may require the TexMeshPro package to also be installed 
+   * TextMeshPro (Version 2.0.1 or higher)
+
+
+ Graphical user interface, application
+
+Description automatically generated 
+
+
+
+
+
+
+
+
+
+2. Import the Cerebrum Custom Package
+* Assets->Import Package->Custom Package
+   * Select NewsUCG_lib.unitypackage
+   * All should be checked and hit Import button
+   * NOTE: If you get an error in AddressableAssetGroupTemplate.cs:ln144: 
+“Console does not contain a definition for WriteLine( ) “
+Then change console.WriteLine to Debug.Log( ) or remove that line.
+ A screenshot of a computer
+
+Description automatically generated 
+
+
+
+
+
+3. Create Addressables Database and Build Settings Asset. 
+* Create Addressables database (must be done after Cerebrum is imported)
+   * Window->Asset Management->Addressables->Groups
+ A screenshot of a computer
+
+Description automatically generated 
+
+
+
+   * If no packed assets are created automatically, create them manually. Addressables Groups->Create New Group> Packed Assets
+ A screenshot of a computer
+
+Description automatically generated 
+
+
+
+   * Addressables Groups->Build->New Build->Default Build Script
+ A screenshot of a computer
+
+Description automatically generated with medium confidence 
+
+
+
+4. Test the Setup by Playing a Scene
+* All scenes contained in the Assets/Scenes/NEWS and Assets/Scenes/ScenesRooms folders will need to be added to the Build Settings.
+ A screenshot of a computer
+
+Description automatically generated 
+
+* Assets/Scenes/NEWS/NEWSMain.unity. Play the scene.
+* GameManager object (with GameManager.cs component) parses Scenario files, and sends object commands to appropriate objects.
+* GameObjects have either an ObjectMessageHandler component or a component which inherits from it or ObjectMessageHandlerBase.cs in order to receive messages.
+
+
+* All CS scripts referencing Cerebrum classes should have “using Cerebrum;” at the top of the file to reference the Cerebrum namespace.
+
+
+
+
+GameManager 
+
+
+Cerebrum’s GameManager (GM) parses the Scenario File(s) and handles certain commands and statements, logic and flow, as well as evaluating expressions and variables.  Any commands not handled by it are assumed to be for another Unity GameObject (GO), and the GM tries to identify the named GO and pass the command string to it.  
+ Graphical user interface, application
+
+Description automatically generated 
+
+
+
+The GameManager script is added to an empty GameObject as a component.
+A list of ScenarioFiles to execute can be added in the CommandFiles parameter.
+
+
+Debugging 
+
+
+Debugging is supported in many ways by enabling the inspector: 
+Debug Commands – write currently executing command to Debug Text Box.
+Game Delay – sets a delay in seconds between execution of each scenario command line
+Debug Console – puts a text input box in the top left of screen to enter scenario commands.
+Debug Statements – turns on the Debug Text Box for the Debug scenario command.
+Debug Canvas – a scrollable canvas in the game window showing last commands executed.
+My Debug Log – write C# debug statements to Console/log file.
+
+
+
+
+Scenario Files 
+
+
+Scenario files are text files which contain GameManager statements/expressions, and also commands for GameObjects (which are handled by their ObjectMessageHandler component).  Statements are either recognizable by the GameManager, or they are assumed to be commands for a GameObject which as an OMH component attached.  GameObject commands operate on a Noun-Verb-Modifier syntax (Subject-Command-Parameters).  Commands for the GameManager itself can omit an optional GM subject (usually omitted for clarity).  Commands and variable names are case-insensitive.  
+
+
+Each Scenario file can be considered as its own function.  Scenario files are executed sequentially by the GameManager, and can call other Scenario files as subroutines using the Do command.  A scenario file will return to the calling file when it reaches the end of the file or when it encounters a Return statement.
+
+
+Here are some examples of Scenario commands:
+
+
+        GM wait 0.5                       #pause for ½ second with optional GM Subject
+               Wait 0.5                              #pause for ½ second with GM Subject omitted
+
+
+        #Setup Variables
+        $Cup = ‘CupObject’                            #Unity GameObject named CupObject
+        $PatientHand = Patient + ‘/LeftHand’         #Patient GameObject’s left hand child object
+
+
+        #Have patient grab a cup with left hand
+        $Patient grabLeft $Cup                    #move left hand to grab the cup object
+        Wait 1                                    #wait for hand to move to cup
+        $Cup attachTo $PatientHand            #attach cup to hand
+        
+        # If a button is pressed, pop up a message and do something 
+        $ButtonPressed =                          #multi-line assignment when value is GO result
+                ButtonObject isPressed   #GameObject command returns value
+
+
+        Label ‘Loop1’                            #used for jumps and loops
+        If
+                $ButtonPressed
+        Then
+                Do ‘DoSomething.txt’         #call another scenario file (subroutine)
+                Prompt ‘Did something.’    #pop up a message to the player screen
+        Else
+                Wait 0.1   #slow down loop
+                Endif
+        Goto ‘Loop1’        
+
+
+________________
+
+
+Scenarios as Functions
+
+
+As of Cerebrum 1.1, Scenario files are now treated more like functions.  They can be called by their name with no file extension, can be passed optional parameters in the Do call, and can return a value.
+
+
+Do call
+
+
+The “.txt” file extension can now be left off the Scenario call:
+
+
+Do 'EWS_Nurse/PatientCreations/Expressions/Smile' 
+instead of 
+Do 'NEWS_Nurse/PatientCreations/Expressions/Smile.txt'
+
+
+
+
+Do Parameters
+
+
+All scenarios can take optional parameters in the Do call to the scenario. These parameters get assigned to variables $param_1, $param_2, etc. or can be accessed by array notation $param[1], $param[2]. As these are global, and there can be nested Do calls, you should immediately assign them to other variables at the top of the scenario file, e.g. the PourPackage.txt file:
+
+
+# Called by:
+# Do 'PourPackage' $Package $Target $Height
+
+
+If
+        $param[0] > 0
+Then
+        $Package = param[1]
+        $Target = param[2]
+        $Height = param[3]
+Endif
+#Do stuff with $Package, $Target, and $Height…
+
+
+IMPORTANT: parameter numbering starts at 1, NOT 0 as in C# arrays.  $param[0] is a special param that holds the number of parameters (not including itself).  So if param[0]==3, param[3] is the last parameter.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Return Values
+
+
+All scenarios can return a value to the Do command, which can be used for multi-line assignments or IF statements. e.g.
+$BP =
+Do 'CalcBloodPressure'
+
+
+where CalcBloodPressure.txt has the following:
+return $MeasuredBloodPressure
+
+
+e.g. Smile.txt:
+#Smile.txt Do 'smile' [duration] - default duration set to 1 sec
+$duration = $param_1
+if 
+    $duration == ' '  #not set
+then
+    #prompt 'default smile duration '
+    $duration = 1
+endif
+
+
+$Patient setblend face 33 50 $duration
+$Patient setblend face 34 50 $duration
+
+
+—-
+
+
+e.g. DoTest.txt:
+$p1 = 'hello'
+$p2 = 'there'
+Prompt 'Assigning params p1 ' + p1
+Wait 1
+$retval = 
+    Do 'DoReturnTest' $p1 $p2 'one'
+Prompt 'Returned from DoReturnTest.txt with retval = ' + retval
+ 
+$retval = 
+    Do 'CerebrumTests/DoReturnTest' $p1 $p2 'two'
+Prompt 'Returned from DoReturnTest.txt with retval = ' + retval
+
+
+Unload 'CerebrumTests/DoReturnTest'    #unloads Scenario if file needs to be changed
+
+
+$retval = 
+    Do 'CerebrumTests/DoReturnTest' $p1 $p2 'three'
+Prompt 'Returned from DoReturnTest.txt with retval = ' + retval
+
+
+—-
+
+
+e.g. DoReturnTest.txt:
+# DoReturnTest.txt Tests Do calls
+$drp1 = $param_1
+$drp2 = $param[2]
+$drp3 = $param[3]
+
+
+Prompt '1 ReturnTest params are ' + param_1 + ',' + param_2 + ',' + param[3]
+Wait 2 
+Prompt 'ReturnTest param assignments are ' + drp1 + ',' + drp2 + ',' + param[3]
+Wait 2 
+$doretval = 
+    Do 'ReturnTest'
+
+
+Prompt 'Returned from ReturnTest.txt with doretval = ' + doretval
+Wait 1
+return doretval
+
+
+Unload Command
+
+
+As seen above, an Unload command was added to clear the text cache of the scenario files, mostly for debugging purposes.  Normally, once a file is read in, it stays in cache so the file does not need to be read in again.  The Unload command makes sure that the next time it is called, the file is read in again (for if you want to dynamically make a change to the file while the simulation is running), e.g.:
+
+
+Unload 'CerebrumTests/DoReturnTest'    #unloads Scenario if file needs to be changed
+
+
+
+
+________________
+
+
+Multiple Functions in Scenario File
+
+
+The Do command was extended to also include an optional label name delimited with a colon (Do ‘FileName:LabelName’) to goto, so we can have multiple functions in one file.  E.g.:
+ 
+Do ‘NurseActions:TakeBlood’ $Patient3 
+ 
+which would go to the NurseActions.txt file, and go down to the label ‘TakeBlood’, and pass in $Patient3 as a parameter.  NurseAction.txt would look like:
+
+
+#NurseAction.txt
+#
+Label ‘TalkToPatient’    #one function
+…..
+# Do some talking to patient stuff
+Return #return from function NurseAction:TalkToPatient
+ 
+….
+ 
+Label ‘TakeBlood’    #2nd function
+If
+                params[0] > 0
+Then
+                $Patient = param[1]
+Endif
+#Do some taking blood stuff
+….
+Return  #return from function NurseAction:TakeBlood
+ 
+Label ‘AnotherNurseTask’  #3rd function
+…
+________________
+
+
+GameManager commands/statements
+
+
+
+
+gamespeed  speedMultiplier                #speed up game time by speedMultiplier
+
+
+Label
+
+
+#                                          #comment
+$                                        #expression requiring evaluation follows
+
+
+if 
+[conditional]                                #conditional on separate line from if
+then 
+[then-block]
+else                                         #optional
+[else-block]                                #optional
+endif 
+
+
+dochoice choiceNumber                #first choice is #1 (not 0)!
+[ 
+Old: choices 
+[choices-block]                        #only the choiceNumber line gets executed
+Old: choices[ 
+]
+ 
+pause timeInSeconds                        #pauses scenario execution
+Old: wait 
+
+
+waitfor                                 #waits for following command (on next line) to return true
+
+
+ison objectName                        #true if object is on
+isoff objectName                        #true if object is off
+
+
+
+
+turnon objectName                        #enables object
+turnoff objectName                        #disables object
+
+
+goto lineNum | labelName                 #jumps execution to a new line
+label labelName                        #identify a line by a name
+
+
+do filename                                #starts executing a new scenario file
+Old: load 
+unload filename                         #unloads scenario from cache so changes can be made 
+
+
+return                                 #returns to scenario which called this one by do command
+
+
+create prefabName objectName        #creates an object and names it objectName
+destroy objectName                        #destroys a game object
+
+
+
+
+debug         message                        #prints debug message at top of screen if Debug flag is set
+debug.on                                 #sets Debug flag to turn on debug prompt box
+debug.off                                 #sets Debug flag to turn off debug prompt box
+
+
+debugCanvas 
+debugcanvas.on                         #turns on a scrollable canvas in the game window showing last commands executed.
+debugcanvas.off                         #turns off a scrollable canvas
+
+
+mydebuglog true|false                #turns on/off this GameManager’s debug log
+
+
+debuglog true|false                        #turns on/off all GameManagers’ debug logs
+
+
+
+
+debug.commandentry true|false        #turns on/off command entry to enter scenario commands
+debug.commands true|false                #turns on/off debugging scenario commands
+debug.displaylastcommands true|false  #turns on/off displaying last two scenario commands
+
+
+debug.delay                                 #sets a delay in secs after each Debug call
+game.delay timeInSeconds                  #time between scenario commands
+
+
+prompt message                        #prints message to bottom of screen prompt box
+speaker1 message                        #prints Speaker1 message (lower dialog box)
+speaker2 message                        # prints Speaker2 message (upper dialog box)
+
+
+
+
+prompt.offset                         #dialog dialog message offset (default .8)
+
+
+
+
+Note: Game Manager commands can be with or without an optional 
+
+
+Debug Commands – write currently executing command to Debug Text Box.
+Game Delay – sets a delay in seconds between execution of each scenario command line
+Debug Console – puts a text input box in the top left of screen to enter scenario commands.
+Debug Statements – turns on the Debug Text Box for the Debug scenario command.
+Debug Canvas – a scrollable canvas in the game window showing last commands executed.
+My Debug Log – write C# debug statements to Console/log file.
+________________
+
+
+
+
+
+
+ObjectMessageHandlers
+
+
+All GameObjects that want to be callable by a scenario file must have an ObjectMessageHandler component.  This can be from the ObjectMessageHandlerBase class, the ObjectMessageHandler class, or a class that inherits either of those. 
+
+
+GameObject commands operate on a Noun-Verb-Modifier syntax.  
+ObjectMessageHandlerBase (OMHB) commands:
+
+
+Unity GameObjects can be identified by their Unity hierarchy or 2-levels of addressable names, or combinations of the two.  Cerebrum also supports abbreviated hierarchy path names as well.  The following are the types of names that can be used to access Unity GameObjects.:
+* GameObject name or full name in hierarchy, e.g.
+   * Player
+   * /Table/Top
+   * /metarig/spine/spine.001/spine.002/spine.003/spine.004
+* Abbrieviated Hierarchy Name* (root name and some descendent)
+   * /metarig/spine.004  (omits spine.001/spine.002/spine.003)
+* AddressableName+ Abbrieviated Hierarchy (up to 2 levels of addressables) 
+   * Bed1/Patient/spine.004
+* Variable - e.g.: 
+   * $PatientFace
+* Expression (with no spaces!)
+   * $Patient+'/metarig/spine/spine.001/spine.002/spine.003/spine.004'
+
+
+
+
+*  The GM object lookup can find full path names both with the Addressables and without. For example, it will try to walk a hierarchy, but you can shortcut by eliminating children in between the root and the end object name. e.g. ’metarig/spine/spine.001/spine.002/spine.003/spine.004/spine.005/spine.006/Hair’ can be shorted to 'metarig/spine/Hair' or 'metarig/Hair'  You just need enough to differentiate between different clones. The GM can give unique names to the addressable instance clones by setting the RoomGenerator flag RenameObjects to true. Instead of all being Bed(Clone), the Addressable name/number is appended with the object name as follows: locName + locNum + "_" + objectAddressableName  which results in Bed4_PatientBedClickable 
+
+
+________________
+
+
+Expressions
+
+
+Expressions and variables are denoted by a starting $
+Only one $ needs to start an expression, so variables in the expression do not need a $.  The $ signals that what follows gets passed to the GameManager’s Expression Parser for evaluation.  
+
+
+
+
+IMPORTANT:  All variables are GLOBAL within a single GameManager!  However, they are local to the GameManager when you have multiple GameManagers.
+
+
+Expressions roughly follow the syntax of MS DataTable expressions:
+https://docs.microsoft.com/en-us/dotnet/api/system.data.datacolumn.expression?view=net-5.0
+
+
+NOTE: Prompt and = (assignment) statements assume expression follows, so no $ is needed
+NOTE: Special =$ operator evaluates the result of the right-hand expression twice.
+NOTE: Cerebrum uses spaces as separators, so in cases where multiple parameters or a single object name are expected, either use a variable or an expression which has NO WHITE SPACE.
+NOTE: DataTable expressions use single = in expression for conditionals.  Cerebrum supports either singe = or double ==. e.g. $bool1 = (result = expected) or $bool1 = (result == expected)
+
+
+
+
+$str1 = 'foo'
+$bool1 = true
+Prompt 'Check Convert function (bool to string)'
+Prompt 'Result = ' + Convert(bool1 = true, 'System.String') + str1
+Prompt 'Check IIF function'
+Prompt IIF(bool1 = false, 'Bool1 is false:FAIL','Bool1 is true:PASS')
+$bar = bar + 1                        #note the 2nd bar does not need a $ 
+$choice = 2
+$fileName = 'fileName'
+$fileName1 = 'CheckPatient.txt'
+$fileName2 = CheckSignature.txt'
+$choiceFile =$ fileName + choice   #evaluated twice => ‘fileName2’ => ‘CheckSignature.txt’
+$bool1 = (bool1 = false)        #note single = in expression for conditional, not assignment 
+$objName = ‘Nurse’
+$objName outline.on
+$objName+’2’ outline.off
+
+
+
+
+________________
+
+
+Math Functions
+
+
+* Sin
+* Cos
+* Tan
+* Asin
+* Atan
+* Atan2
+* Abs
+* Floor
+* Ceil
+* Round
+* Min
+* Max
+* Sqrt
+* Pow
+* Lerp
+* Rand
+* Clamp
+
+
+Examples:
+
+
+$foo = lerp(1,6,0.5)   #foo = 3.5
+
+
+NOTE: Clamp was broken in 1.1 and fixed in 1.2. In 1.1, min/max can be used instead of clamp:
+
+
+$minb= 3
+$maxb= 8
+$val = 10
+$foo = min(max(val,minb),maxb). #clamp to (min,max).  foo = 8
+
+
+
+
+
+
+________________
+
+
+Assignment Operator =
+
+
+
+
+$VarObject = 'InputObject'
+$retval = 
+  $VarObject getItemDate
+
+
+IMPORTANT: When an object is returning a value, it needs to be on ITS OWN LINE after the assignment “=”, as in the getItemDate being called on the InputObject object.
+
+
+ObjectMessageHandler.cs for the getItemDate command does this:
+                retString = "'"+ theDate + "'"; //need to make into string expression
+
+
+Note that it needs to add single-quotes to let the expression parser know it is a string, otherwise the EP will think the date is numeric such as 12/6/21 will do the divisions of 12 divided by 6 divided by 21.  Basically, we can set the return values to even include parameters if we wanted, since it is just a string which gets parsed into an expression.
+
+
+Prompt 'retval = ' + retval
+$VolumeInput = 'Volume'
+$DripFactorInput = 'DripFactor'
+
+
+      $Volume =
+        $VolumeInput getValue
+
+
+      $DripFactor =
+        $DripFactorInput getValue
+________________
+
+
+Assignment Variable Operator $$
+The assignment variable operator $$ evaluates the left-hand variable as string and then treats that as a variable name to evaluate.
+
+
+So:
+                $StageTime = 2
+                $taskName = 'TaskInfusionSqueeze' + StageTime
+                $$taskName = taskNum
+Is the same as:
+                TaskInfusionSqueeze2= taskNum 
+Assignment Eval Operator =$
+The assignment eval operator evaluates the expression to a string and then treats that as a variable name to evaluate.
+
+
+So:
+                $StageTime = 2
+                $taskName = 'TaskInfusionSqueeze' + StageTime
+                $taskNum =$ taskName
+                Prompt ‘taskNum variable is ‘ + taskNum
+
+
+Is the same as:
+                $TaskInfusionSqueeze2 = 5
+                $taskNum = TaskInfusionSqueeze2
+                Prompt ‘taskNum variable is ‘ + taskNum
+
+
+Both will print the following:
+taskNum variable is 5
+________________
+DoChoice/Choices command
+
+
+The DoChoice command will execute a 1-line command from multiple Choices based on its parameter number.  Unlike most programming arrays, the choice numbers start at 1, not 0.
+
+
+
+
+$choice = 2   #Do 2nd choice (‘CheckPatient.txt’)
+DoChoice choice
+Choices[        #the word Choices is optional
+    Prompt 'choice 1: FAIL'     
+    Do 'CheckPatient.txt'
+    Prompt 'choice 3: FAIL'
+    Prompt 'choice 4: FAIL'
+    Prompt 'choice 5: FAIL'
+]
+
+
+Or: 
+
+
+$choice = 1   #Do 1st choice (‘Choice1.txt’)
+DoChoice choice
+[        
+    Do 'Choice1.txt'
+    Do 'Choice2.txt'
+    Do 'Choice3.txt'
+    Do 'Choice4.txt'
+    Do 'Choice5.txt'
+]
+________________
+
+
+Arrays
+Cerebrum does not have true arrays where values are contained in a sequential block of memory.  Rather, it has pseudo-arrays where associated variable names are used to reference related data, and the =$ and $$ operators are used for building up and referencing variable names through string manipulation.  Pseudo-arrays can also be referenced and treated like arrays or dictionaries using the bracket notation [ ].  
+
+
+Pseudo-Arrays
+
+
+Note the use of pseudo-array $fileName to do similar function of DoChoice:
+$fileName = 'fileName_'
+$fileName_1 = 'CheckPatient.txt'
+$fileName_2 = 'Forms/CheckSignature.txt'
+$fileName_3 = 'CheckPatient3.txt'
+$fileName_4 = 'CheckPatient4.txt'
+$fileName_5 = 'CheckPatient5.txt'
+
+
+$choiceFile =$ fileName + choice   # =$ operator used to reference string as a variable name
+Prompt 'Going to load ' + choiceFile
+Wait 2
+
+
+Bracket Array/Dictionary Notation
+
+
+Array and Dictionary notation is actually syntactic-sugar for the pseudo-arrays that evaluates the index between the brackets, and then appends that to the array name to make a new variable name, with an underscore in between.  e.g.:
+
+
+$bar=5 
+foo[bar] # becomes variable named foo_5 
+
+
+$bar = 'hello' 
+foo[bar]  # becomes a variable names foo_hello
+
+
+Examples are seen below:
+
+
+
+
+________________
+
+
+# ArrayTest.txt Tests Arrays (which are just faked to be variable names with the index appended)
+
+
+$one = 1
+$two = 2
+$three = 3
+$four = 'four'
+$five = 'bar'
+
+
+$foo[1] = 'one'
+$foo[two] = 'two'
+$foo_3 = 'three'
+$foo['four'] = 'four'
+$foo_bar = 'five'
+
+
+Prompt 'foo_1 = ' + foo_1
+Wait 1
+Prompt 'foo_3 = ' + foo_3
+Wait 1
+Prompt 'foo[1] = ' + foo[1]
+Wait 1
+Prompt ' foo[2] = ' + foo[2]
+Wait 2
+Prompt ' foo[3] = ' + foo[3]
+Wait 2
+Prompt ' foo[three] = ' + foo[three]
+Wait 2
+Prompt 'foo[1] = ' + foo[1] + ' foo[2] = ' + foo[2]
+Wait 2
+Prompt 'foo[one] = ' + foo[one] + ' foo[2] = ' + foo[2] + ' foo[1+two] = ' + foo[1+two]
+Wait 2
+Prompt 'foo[four] = ' + foo[four] + ' foo[five] = ' + foo[five]
+________________
+
+
+Conditionals
+
+
+Cerebrum supports nested conditionals.  
+
+
+
+
+If 
+   $bool1
+Then
+   $bar = '1'
+   Prompt 'In Then block 1'
+   If 
+      $bool2
+   Then
+      $bar = '11'
+      Prompt 'In Then block 1.1'
+      Wait 1
+   Else
+      $bar = '10'
+      Prompt 'In Else block 1.0'
+      $bool1 = (bool1 = false)
+      Wait 1
+   Endif
+   Wait 2
+Else
+   $bar = '0'
+Endif
+
+
+
+
+Branching
+
+
+
+
+label labelName                        #identify a line by a name
+goto lineNum | labelName                 #jumps execution to a new line
+
+
+Label 'VolumeLoop'
+$VolumeInput = 'Volume' 
+
+
+$Volume = 
+$VolumeInput getValue 
+Prompt 'Vol: ' + Volume 
+        Wait 1
+Goto 'VolumeLoop'
+________________
+Pseudo-Functions using Do command
+
+
+Scenario files can be used like functions when using variables to pass info back and forth.
+ 
+$formitem = 'MedForm/SignatureLine'
+$question = 'Is it signed?'
+Do 'Form/CheckFormItem.txt'
+Prompt ‘Mark = ‘ + mark
+
+
+Form/FormItem.txt:
+
+
+   Viewer lookAt $formitem 0.0,0.2,-0.05
+   Wait 1
+   MedForm Menu.Question $question
+   MedForm Menu.on $formitem
+   WaitFor 
+   MedForm Menu.Done 
+   $mark = formitem + 'Mark'
+   Return 
+
+
+OMH Return Values
+
+
+ObjectMesasgeHandlers now support non-bool return values that can be used for assginments which were started on the previous scenario file line.  Examples of uses are getValue and getDate.
+
+
+The getValue command in OMHB returns the InputText value (set in Canvases generally)
+A loop to continually update the values is:
+
+
+Label 'Loop'
+$VolumeInput = 'Volume' 
+$DripFactorInput = 'DripFactor' 
+$TotalTimeInput = 'TotalTime' 
+
+
+$Volume = 
+$VolumeInput getValue 
+$DripFactor = 
+$DripFactorInput getValue 
+$TotalTime = 
+$TotalTimeInput getValue 
+
+
+Prompt 'Vol: ' + Volume + ' DripFactor: ' + DripFactor + ' Time = ' + TotalTime
+        Wait 1
+Goto 'Loop'
+
+
+The getDate is similar to the setItemDate except it gets the date as a string, e.g.:
+        $tomorrow =
+                getDate 1 'dd-MMM-yyyy'
+
+
+
+
+
+
+________________
+
+
+Multiple Game Managers
+
+
+Multiple GameManagers (GMs) can be included in a scene where each GM is used to control different elements of the scenes, such as multiple patients in a hospital ward.  
+ Text
+
+Description automatically generated 
+
+By having multiple GMs, each GM has its own ExpressionParser and therefor its own local copy of variables (which are global only with respect to that GM).  Therefore, if each GM is running code for each of 5 different patients, the variables $Patient, $HeartRate, $PatientName, etc. will each reference a different patient’s GameObjects and information.
+The GMs are added to the RoomGenerator so that they are initialized after the level geometry is loaded.  
+ Graphical user interface, application
+
+Description automatically generated 
+
+________________
+
+
+Global Variable Manager
+
+
+In order to coordinate multiple GMs running at once which each contain variables local to each GM, global variables can be used.  Global variables are shared among multiple GameManagers by having a GlobalVariableManager GameObject which has an Object Message Handler component OMHGlobalVariable.cs.  This MH understands two commands, setGlobal and getGlobal:
+
+
+    public override bool HandleMessage(string msg, string param, out string retString)
+    {
+
+
+        . . .
+
+        switch (msg)
+        {
+            case "setglobal":
+                variables.AddSafe(varname,varvalue);
+                break;
+            
+            case "getglobal":
+            
+                string theValue;
+                if (!variables.ContainsKey(varname))
+                    theValue = "0";
+                else
+                    theValue = variables[varname];
+                retString = "'"+ theValue + "'"; //need to make into string expression
+                break;
+
+
+
+
+$GlobalVar = 'GlobalVariableManager'
+$GlobalVar setGlobal MyName $Bed
+To read: 
+$GlobalVar = 'GlobalVariableManager'
+$myname =
+    $GlobalVar getGlobal MyName
+
+
+
+
+NOTE: There is nothing special about this OMH.  You can modify this or make your own OMH component which would handle global variables in a different way
+________________
+ObjectMessageHandlerBase commands:
+
+
+Cerebrum can talk to any Unity 3D Game Object (GO) by passing a message to the named GO as an action or verb command.  This subject-command-parameters format takes the form of:
+
+
+   Subject  Command [Parameter1] [Parameter2] etc 
+
+
+where Subject is the GameObject, Command is an action, and there zero or more space-delimited parameter strings which depend on the command.
+
+All Unity Game Objects (GOs) will have the ObjectMessageHandler based class (OMHB) added by default as a component if a Cerebrum Scenario File tries to pass a message to that GO, and all new ObjectMessageHandler classes (OMHs) inherit from this class and should call its HandleMessage base function if they don’t recognize a command.  
+
+The commands all GOs (Object) will recognize are:
+
+
+Object follow targetObject        #rigid body follow target
+Object jump                                         #rigid body jump
+NOTE: The jump command is a holdover from early testing of the system.  It isn’t really meant to be used.  It basically applies a force to the object if it has a RigidBody on it.
+
+
+
+
+Object switchtoscene sceneName
+Object addscene sceneName
+
+
+Object clickable.reset                        #resets Pressed flag and enables bounding volume
+Old: Object reset 
+Object clickable.resetpressed                #resets Pressed flag only
+Old: Object resetpressed 
+Object clickable.ispressed                 #returns whether Pressed flag is set
+Old: Object pressed 
+Object clickable true | false                #enables/disables clicks and BB        
+Old: Object selectable
+
+
+
+
+Object playsound interval  #must have audio source set in inspector
+Object stopsound
+
+
+Object play triggerName [true/false] [value]        #sets animation controller trigger, bool, or value
+#If only one parameter is passed, it will set the trigger for that animation, play it, then reset the trigger
+#If two parameters are passed, the first parameter is a true or false for an animation to play
+#If three parameters are passed, the third parameter is the animation float value being set
+
+
+Examples:
+$PlayerNurse play LeanIn                             #1 param, play “LeanIn” animation
+$Patient play Pupil_Right_Shrink $PupilReacts      #2 params, shrink pupil on/off
+$PlayerNurse play $GripSizeAnim true $gripSize.  #3 params
+ 
+
+
+Object setopacity opacity [duration=0] #sets opacity of current object
+Object setcolor color_V3 [duration=0] #sets color of current object
+
+
+
+
+Object says str                                #true if inputText field matches str
+
+
+________________
+
+
+Object on [childNumber]                #turns on childNumber of object (or 1st child if no param)
+Object off [childNumber]                 #turns off childNumber of object (or 1st child if no param)
+Object ison                                         #whether (1st child) is on
+Object isoff                                 #whether (1st child) is off
+
+
+
+
+Object delete    #delete this game object
+Object exists [GameObject]  #check if GameObject exists
+
+
+#NOTE: the following are blendable (may be called together)
+Object localrotatetox angleInDegrees [duration=1]
+Object localrotatex angleInDegrees [duration=1]
+Object localrotatetoy angleInDegrees [duration=1]
+Object localrotatey angleInDegrees [duration=1]
+Object localrotatetoz angleInDegrees [duration=1]
+Object localrotatez angleInDegrees [duration=1]
+
+
+#NOTE: not blendable. If doing multiple of the following, 
+#      place a Wait 0 inbetween so one does not overwrite others
+Object rotatetox angleInDegrees [duration=1]
+Object rotatex angleInDegrees [duration=1]
+Object rotatetoy angleInDegrees [duration=1]
+Object rotatey angleInDegrees [duration=1]
+Object rotatetoz angleInDegrees [duration=1]
+Object rotatez angleInDegrees [duration=1]
+
+
+#NOTE: the following are blendable (may be called together)
+
+
+Object localmovex distance [duration=1] -OR-
+Object moveright distance [duration=1]
+
+
+Object localmovey distance [duration=1] -OR-
+Object moveup distance [duration=1]
+
+
+Object localmovez distance [duration=1] -OR-
+Object movefoward distance [duration=1]
+
+
+Object movecloser distance [duration=1]  #move towards player
+Object movefarther distance [duration=1] #move away from player
+
+
+Object movecirclex distance [duration=1] #move in a circle around local axis
+Object movecircley distance [duration=1] #move in a circle around local axis
+Object movecirclez distance [duration=1] #move in a circle around local axis
+
+
+#NOTE: not blendable. If doing multiple of the following, 
+#      place a Wait 0 inbetween so one does not overwrite others
+
+
+Object movex distance [duration=1]
+Object movey distance [duration=1]
+Object movez distance [duration=1]
+
+
+Object moverightof targetObject distance [duration=1]
+Object moveabove targetObject object distance [duration=1]
+Object movebehind targetObject distance [duration=1]
+
+
+Object matchrotation targetObject #Matchrotation immediately copies the exact rotation and takes no additional parameters.
+
+
+
+
+Object parentto GameObject  #parent directly and try to preserve scale
+Object attachto GameObject  #attach with a intermediate empty GO to preserve scale
+Object unparent|detach                 #unparent this object
+
+
+Object constrainto GameObject #create a ParentConstraint to object
+Object releaseconstraint                 #un-ParentConstraint this object
+
+
+
+
+Object outline true|false
+
+
+Object outline.on 
+Old: Object outlineon 
+
+
+Object outline.off 
+Old: Object outlineoff 
+
+
+Object outline.color good|bad|normal
+Old: Object changeshader  good|bad|normal
+
+
+Object outline.check good|bad|normal
+Old: Object shadercheck good|bad|normal
+
+
+
+
+Object setmaterial materialName
+
+
+Object scale amount [duration=0]
+
+
+________________
+
+
+Object moveto targetObject [duration=1] #position only
+Object align targetObject [duration=1]          #position and orientation
+Object orient targetObject [duration=1] #orientation only
+
+
+NOTE: Moveto, Align and Orient interpolate over time (duration is 1 sec by default).  Align moves and orients the object (position and rotation), while Orient only changes the rotation, and Moveto only affects position.
+
+
+Object alignchild childObject targetObject [duration=1] #move this object so child aligns with target
+
+
+Object lookAtMe                             #look at Object from current postion
+Object lookAtMe [Offset]     #look at Object with relative offset
+Object lookAtMe [FromObject] #look at Object from other object position
+
+
+
+
+    e.g.: /ExamRoom1/Desk lookAtMe  0.0,1.0,1.0  
+
+
+Object lookat Params
+Object lookat AimObject [offset] [duration]
+Object lookat AimObject [FromObjectLocation] [duration]
+Object lookAtLegacy AimObject ("close", "medium", or "far"(using CameraTargetParams data))
+
+
+LookAt is a command to orient the Object (typically used with Player camera) towards another AIM_OBJECT or location by aiming the Z-axis.  It can also be used for other objects.  
+NOTE: Lookatme has the Player camera rotate towards the Object.  Lookat is an arbitrary Object that is rotated towards the AimObject. 
+
+
+
+
+
+
+    * lookat AIM_OBJECT [CAM_OFFSET] [duration=0]
+    * lookat AIM_OBJECT [duration=0] 
+    * Looks at the AIM_OBJECT from optional distance CAM_OFFSET and optional duration
+    * Examples: 
+    * Player LookAt Fridge 2.0            #lookat Fridge with 2 second transition
+    * Player LookAt Bob Chair/Eyeheight   #lookat Bob from Chiar/Eyehieght location
+    * Player LookAt Bob 0.0 -0.5 -2.0     #look slightly up at Bob 
+    * 
+    * @param AIM_OBJECT: obect to look at
+    * @param CAM_OFFSET: Vector3 | OBJECT_LOCATION
+    * @param OBJECT_LOCATION: ObjectName
+
+
+
+
+An older version of LookAt which supported DISTANCE_KEYWORDS has been deprecated and renamed as LookAtLegacy.  It is included here for legacy scenario files.
+    * lookat AIM_OBJECT [CAM_OFFSET]
+    * Looks at the @p AIM_OBJECT from an optional distance @p CAM_OFFSET.
+    * Examples: 
+    * Player lookAtLegacy Fridge closeup
+    * Player lookAtLegacy Bob Chair/Eyeheight
+    * Player lookAtLegacy Bob 0.0 -0.5 -2.0     #look slightly up at Bob 
+    * 
+    * @param AIM_OBJECT: obect to look at
+    * @param CAM_OFFSET: Vector3 | DISTANCE_KEYWORD | OBJECT_LOCATION
+    * @param DISTANCE_KEYWORD: close | closeup | medium | med | far
+    * @param OBJECT_LOCATION: ObjectName
+
+
+
+
+
+
+Object lookfromdistance TARGET DISTANCE #lookat from distance to object (using closest collider point if it has one)
+
+
+
+
+Object enableclick Params
+Object disableclick Params
+
+
+Object setItemText StringExpression         #see below for detail
+
+
+StringExpression – a single variable or string expression
+
+
+$EnterMessage setText ‘Hello’ 
+$PromptText = ‘Goodbye ‘ + PlayerName
+$ExitMessage setText $PromptText 
+
+
+
+
+IMPORTANT: There is a problem if you are passing a single string which contains a comma or | (which are used to separate vectors for Menu.Choices.  If you want to have a string with those in it, you must first assign it to a variable, and then pass in the variable.  This should eventually be fixed to support better string parameter handling.
+
+
+So do this:
+$EndMsg = 'Click on "Check result" on left,\nthen Click on "Play game" to Resume.\n\nOtherwise click "Proceed" to go to the next stage.'
+$Message setText $EndMsg
+But not this:
+$Message setText 'Click on "Check result" on left,\nthen Click on "Play game" to Resume.\n\nOtherwise click "Proceed" to go to the next stage.'
+
+
+Object setDate|setItemDate [dayOffset] [format]          #from midnight today
+Object setTime|setItemDateTime [dayOffset] [format] #from current time
+
+
+setItemDate scenario command:
+setItemDate [dayOffset] [format]
+$MonitorDate8 setItemDate 0 'dd-MMM-yyyy'
+$MonitorDate9 setItemDate 1 'dd-MMM-yyyy'
+$IDLabelIssueDate setItemDateTime -0.05   'dd-MM-yy/HH:mm'
+$MonitorName setItemText $PatientName
+$MonitorIC setItemText $PatientIC
+
+
+NOTE: the format can also be used for the time, and the dayOffset can be fractional (i.e. 0.1 is 2.4 hours from midnight for setItemDate, or 2.4 hours from now in setItemDateTime)
+Date/Time format is here: 
+https://docs.microsoft.com/en-us/dotnet/api/system.datetime.tostring?view=net-5.0
+
+
+So an offset of 30 would be a month.
+So something like: 
+$MonitorDate9 setItemDate 30 'dd-MMM-yyyy'
+
+
+Object Menu.on                                           # turn object's menu on
+Object Menu.question                                         # set menu's question
+Object Menu.choices CHOICE_STRINGS         # set multiple-choice choices
+CHOICE_STRINGS choices separated by space or comma. If choice has a space or commad, enclose in single quotes.
+
+
+Object Menu.done                                         # true when choice has been made
+Object Menu.result MATCH_STRING # true if choice matches MATCH_STRING
+MATCH_STRING string exactly matching one of the choices
+
+
+Object Menu.choice                                 # string containing user’s choice
+
+
+
+
+Object setTimer seconds            #Sets timer, give timer amount in seconds
+Object startTimer
+Object stopTimer
+Object checkTimer seconds  #Checks timer, give timer amount of seconds and it checks if it passed it already
+
+
+
+
+Object getbone humanBoneName         # returns GameObject of HumanBoneName
+
+
+________________
+
+
+ObjectMessageHandler (OMH) commands:
+
+
+The ObjectMessageHandler extends the ObjectMessageHandlerBase class and adds additional commands.
+
+
+Object says
+Object write
+
+
+Object showtext
+Object strikethrough
+
+
+Object playerchose
+Object playerreplace
+Object ischosen
+Object setdummy
+
+
+Object open
+Object close
+Object clickoff
+Object clickon
+Object quit
+
+
+Object release Params
+Object setmaterial
+Object setimagecolor
+Object setanimcontroller AnimControllerName #sets the animation controller to param
+
+
+Example:
+ To change the controller for the avatar:
+$AnimController = 'Humans/AnimatorControllers/uAvatar_controller' + BedNumber
+$Patient setanimcontroller $AnimController
+
+
+Each AnimController can have different animations associated with it.
+
+
+
+
+User Input
+
+
+User input can be done through popup menus attached to a GameObject, or text input, or Canvases.  The ObjectMessageHandler generally returns a value (see OMH Return Values section above).   The OMHB includes a circular multiple-choice menu which pops up relative to the object’s location.  This menu is accessible through “Menu.” Commands, and is frequently called on the ZoomSpot GameObject which is attached to the Player camera.
+
+
+Multiple Choice Input: Menu. commands
+
+
+Object Menu.on                                           # turn object's menu on
+Object Menu.question                                         # set menu's question
+Object Menu.choices CHOICE_STRINGS         # set multiple-choice choices
+CHOICE_STRINGS choices separated by space or comma. If choice has a space or commad, enclose in single quotes.
+
+
+Object Menu.done                                         # true when choice has been made
+Object Menu.result MATCH_STRING # true if choice matches MATCH_STRING
+MATCH_STRING string exactly matching one of the choices
+
+
+Object Menu.choice                                 # string containing user’s choice
+
+
+Example:
+ZoomSpot Menu.Question 'Infusion Set'
+ZoomSpot Menu.Choices 'Turn' 'Cancel' 'Put Back'
+ZoomSpot Menu.on ZoomSpot
+WaitFor
+    ZoomSpot Menu.Done
+If
+    ZoomSpot Menu.Result 'Turn'
+Then
+     Prompt 'Chose to turn it'
+…
+
+
+
+
+Text Input: getValue Command 
+
+
+The getValue OMHB command returns the string entered into the public string inputText parameter in the OMHB component.
+
+
+Example:
+
+
+$Volume = 
+$VolumeInput getValue 
+________________
+
+
+Custom ObjectMessageHandlers (OMHs)
+
+
+In order to extend Cerebrum functionality by adding your own Object commands, your script should inherit from the ObjectMessageHandlerBase class (or the ObjectMessageHandler class) and implement the HandleMessage override member function.  You need to use the Cerebrum namespace.
+
+
+using Cerebrum;
+
+
+public class OMHChatBubble : ObjectMessageHandlerBase {
+
+
+    public override bool HandleMessage(string msg, string param, out string retString)
+    {
+        retString = null;
+        bool retv = base.HandleMessage(msg,param,out retString);
+        if (commandFound)
+            return retv;
+
+
+        //OMHB doesn't return the evaluated parameter just in case you need to do something funky with it.
+        if (param != null && param[0] == '$') 
+            param =  ep.EvaluateParam(param);
+
+
+        /*  COMMANDS */
+        switch (msg)  //commands are all lower-case
+        { 
+        
+     //Object setColor r g b
+             “setcolor”:
+            {
+                //Color c;
+                char[] separators = new char[] { ' ','\t'};
+                string[] temp = param.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+                bubbleColor1[0] = float.Parse(temp[0]);
+                bubbleColor1[1] = float.Parse(temp[1]);
+                bubbleColor1[2] = float.Parse(temp[2]);
+                backgroundSpriteRenderer.color = bubbleColor1;
+
+
+                break;
+            }
+                /*MORE COMMANDS HERE*/
+        }
+        return true;
+    }
+When writing a message handler, you can either have the base HandleMessage function called prior to yours,  or if you want to replace existing commands, process your messages first and then call the base class:
+
+
+bool retv = base.HandleMessage(msg,param,out retString);
+
+
+When parameters are passed in to the GameObject, they come passed as one string, and therefore need to be split up and variables and expressions need to be evaluated.  Therefore, you will see:
+char[] separators = new char[] { ' ','\t'};
+string[] temp = param.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+
+
+to split the parameter string into individual parameters.  
+
+
+Anytime a parameter may be a variable or expression, it needs to be evaluated by the expression parser ep by calling its EvaluateParam function:
+
+
+        if (param != null && param[0] == '$') 
+            param =  ep.EvaluateParam(param);
+
+
+Many times this is called if the first character is a $ to denote a variable or expression is following, or by the character being a digit or negative sign or a single-quote denoting a string.
+
+
+GetEvaluatedParameters
+
+
+As of Cerebrum 1.1, ObjectMessageHandlerBase now has a new function, GetEvaluatedParams which will separate out the param string and evaluate each of the parameters separately, returning them in the out parameters:
+
+
+        string [] parameters;
+        GetEvaluatedParams(param, out parameters);
+
+
+________________
+
+
+Sample Scenario File
+
+
+#In 07Setup.txt
+Do ‘Setup.txt’   #call and return from main setup file
+
+
+#Define Tasks
+$TaskMonitor0                 =  0 
+$TaskCannula0                 =  1
+$TaskComplaints0                 =  2
+$TaskCannulaClear60         =  3
+$TaskComplaints60                 =  4
+$TaskDripSettings                  =  5        
+
+
+#Define GameObject names
+$Scene_Exit = 'JoystickCanvas/Exit'
+$Patient = 'Bed4/Patient1/TEMP_Patient'
+$PlayerNurse = 'Player/NursePlayer'
+$NurseBodyGloves = PlayerNurse + '/BodyGloves'
+$NurseBodyNoGloves = PlayerNurse + '/BodyNoGloves'
+
+
+#Set date on BloodBag label
+$InfusionCollection = SetBag + '/Date1' 
+$InfusionCollection setItemDate -3   #3 hours ago
+
+
+#Set patient info on GUI Summary Canvas
+#$SumCanvasPatientInfo = SumCanvas + '/SummaryPatientInfo'
+$PatientInfo = ' Patient Name: ' + PatientName + '                        IC Number: ' + PatientIC + '\n DOB: ' + Birthdate 
+$SumCanvasPatientInfo setItemText $PatientInfo
+
+
+$SceneStart = '07/07Start.txt'
+Do $SceneStart     #Start the main scene functionality
+
+
+________________
+
+
+
+
+
+
+#In 07Start.txt
+
+
+$Choice1 = 'Check'
+$Choice2 = 'Replace'
+$Choice3 = 'Disconnect'
+ZoomSpot Menu.Question 'Cannula'
+ZoomSpot Menu.Choices $Choice1,$Choice2,$Choice3
+ZoomSpot Menu.on ZoomSpot
+WaitFor
+    ZoomSpot Menu.Done
+ZoomSpot Menu.Choices $Yes,$No
+
+
+
+
+$MenuChoice =
+    ZoomSpot Menu.Choice
+
+
+If
+    ZoomSpot menu.result $Choice1
+Then   
+    #Check
+   Prompt ‘Checking Cannula’
+   Wait 1
+   Prompt ‘’   #clear dialog box
+Endif
+
+
+
+
+Label 'Loop1Hour'
+        If
+                $Cannula pressed
+        Then
+                $Cannula reset
+                $TaskNum = TaskCannulaClear60
+                Do '07/Cannula.txt'
+                /Player align PlayerStart
+        Endif
+        If
+                $Scene_Exit pressed
+        Then 
+                $Scene_Exit resetPressed
+                Do 'EndCheck.txt'
+                Return
+        Endif
+        Wait 0.1   #Delay so loop doesn’t take up too much processor time
+Goto ‘Loop1Hour’
+
+
+
+
+
+
+Character Extensions (not in Cerebrum)
+OMHHuman commands:
+
+
+
+
+Object headturn
+Object grableft || grab || grablook || grablookleft ||
+grabright" || grab || grablook" || grablookright 
+Object grab [duration] [handShapeAnimTrigger] [alignment]
+
+
+OMHPatient commands:
+
+
+headturn
+grableft 
+grab 
+grablook 
+grablookleft
+grabright 
+grab 
+grablook 
+grablookright
+release
+setmaterial
+setpatientmaterial        // from 0 to 4 so subtract for bed number
+setpatienttexture        // from 0 to 2
+setpatientnormal                // temp[0] is 0 to 4, temp[1] is 0.0f to 1.0f
+setpatientheight                // 1.5f to 2.5f for beat results
+setpatientface                // temp[0] is 53 to 55, temp[1] is 0.0 to 100.0f
+seteyecorner                // 0.0f to 100.0f
+setpatientweight                // temp[0] is 0 to 1, temp[1] is 0.0f to 100.0f
+droop                                // temp[0] is true or false, temp[1] is 0.0f to
+// 100.0f for left side, temp[1] is 0.0f to
+// 100.0f for right side
+clearhair                        // make patient bald
+sethair                        // from 0 to 7, 0 = bald, 1-7 = hair
+randomtraits
+setblend
+setanimcontroller
