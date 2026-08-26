@@ -1,141 +1,400 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Cerebrum Ollama RAG + LevelGen</title>
+  <title>Cerebrum Multi-Agentic Studio</title>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 1150px; margin: 24px auto; padding: 16px; background: #f3f4f6; color: #111827; }
-    h1 { margin-bottom: 4px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .box { background: white; padding: 18px; border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.08); margin-bottom: 16px; }
-    label { font-weight: 700; display: block; margin-top: 10px; }
-    textarea { width: 100%; min-height: 145px; font-size: 14px; padding: 10px; box-sizing: border-box; }
-    input, select, button { font-size: 14px; padding: 9px; margin-top: 5px; }
-    input[type="text"], input[type="number"] { width: 100%; box-sizing: border-box; }
-    button { cursor: pointer; font-weight: 700; border: 0; border-radius: 8px; background: #111827; color: white; padding: 10px 14px; }
-    button.secondary { background: #374151; }
-    button.good { background: #065f46; }
-    pre { background: #111827; color: #e5e7eb; padding: 14px; white-space: pre-wrap; min-height: 220px; border-radius: 10px; overflow: auto; }
-    .small { font-size: 13px; color: #4b5563; }
-    .files { max-height: 280px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
-    .file-row { display: grid; grid-template-columns: 24px 1fr 70px; gap: 6px; align-items: center; font-size: 12px; border-bottom: 1px solid #f3f4f6; padding: 5px 0; }
-    .badge { display: inline-block; background: #e5e7eb; padding: 3px 7px; border-radius: 999px; font-size: 12px; margin-right: 4px; }
-    .ok { color: #065f46; font-weight: 700; }
-    .warn { color: #92400e; font-weight: 700; }
-    .err { color: #991b1b; font-weight: 700; }
+    :root {
+      --bg-primary: #0b0f19;
+      --bg-secondary: #161d30;
+      --bg-tertiary: #1f2a45;
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --border: #2e3b5e;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+    }
+    
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-main);
+      max-width: 1250px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 800;
+      margin: 0;
+      background: linear-gradient(135deg, #a78bfa, #6366f1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    nav {
+      display: flex;
+      gap: 12px;
+    }
+
+    nav a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-weight: 600;
+      padding: 8px 16px;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+
+    nav a:hover, nav a.active {
+      color: var(--text-main);
+      background: var(--bg-tertiary);
+    }
+
+    .card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      padding: 20px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 900px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      display: block;
+      margin-top: 14px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 150px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      border-radius: 8px;
+      padding: 12px;
+      box-sizing: border-box;
+      font-family: inherit;
+      font-size: 14px;
+      resize: vertical;
+      outline: none;
+    }
+
+    textarea:focus, input:focus, select:focus {
+      border-color: var(--accent);
+    }
+
+    input, select, button {
+      font-size: 14px;
+      padding: 10px 14px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      border-radius: 8px;
+      outline: none;
+      box-sizing: border-box;
+    }
+
+    input[type="text"], input[type="number"], select {
+      width: 100%;
+    }
+
+    button {
+      background: var(--accent);
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    button:hover { background: var(--accent-hover); }
+    button:active { transform: scale(0.98); }
+    
+    button.secondary { background: var(--bg-tertiary); color: var(--text-main); }
+    button.secondary:hover { background: #2b395c; }
+
+    pre {
+      background: #070a13;
+      border: 1px solid var(--border);
+      color: #38bdf8;
+      padding: 16px;
+      font-family: 'Fira Code', 'Courier New', monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin: 8px 0;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      background: var(--bg-tertiary);
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: bold;
+      color: var(--text-main);
+      border: 1px solid var(--border);
+    }
+
+    .badge-status { background: var(--success); color: #000; border: none; }
+    .badge-warn { background: var(--warning); color: #000; border: none; }
+
+    .files-container {
+      max-height: 240px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg-primary);
+    }
+
+    .file-row {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+
+    .file-row:last-child { border-bottom: none; }
+    .file-row input[type="checkbox"] { margin-right: 10px; width: auto; }
+    .file-row .score { margin-left: auto; font-family: monospace; color: var(--accent); }
+
+    /* Pipeline Visualization Layout */
+    .pipeline-container {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .agent-card {
+      background: var(--bg-tertiary);
+      border-left: 4px solid var(--accent);
+      padding: 16px;
+      border-radius: 8px;
+    }
+
+    .agent-card.levelgen { border-left-color: var(--success); }
+    .agent-card.character { border-left-color: var(--warning); }
+    .agent-card.scenario { border-left-color: var(--accent); }
+
+    .agent-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .agent-title { font-weight: bold; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+
+    .plan-box {
+      background: var(--bg-primary);
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--text-muted);
+      border: 1px dashed var(--border);
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
-  <div style="padding:10px; background:#111827; display:flex; gap:10px;">
-    <a href="/index.html" style="color:white; text-decoration:none; font-weight:bold;">Remote MCP Agent</a>
-    <a href="/levelgen.html" style="color:white; text-decoration:none; font-weight:bold;">LevelGen Generator</a>
-  </div>
-  <div class="box">
-    <h1>Cerebrum Ollama RAG + LevelGen Generator</h1>
-    <p class="small">Reads your Unity <b>Assets/StreamingAssets</b>, scenario files, manual LevelGen files, and corrected LevelGen examples. Then it generates new scenario scripts or LevelGen room files using local Ollama.</p>
-    <button onclick="loadStatus()">Refresh Project Status</button>
-    <span id="statusLine" class="small">Waiting...</span>
+  <header>
+    <h1>Cerebrum Multi-Agentic Studio</h1>
+    <nav>
+      <a href="/index.html" class="active">RAG Studio</a>
+      <a href="/levelgen.html">Environment Layout</a>
+    </nav>
+  </header>
+
+  <div class="card">
+    <button onclick="loadStatus()">Refresh Status</button>
+    <span id="statusLine" class="badge" style="margin-left: 10px;">Checking daemon connection...</span>
   </div>
 
-  <div class="grid">
-    <div class="box">
-      <h2>1) Generate</h2>
+  <div class="grid-2">
+    <div class="card">
+      <h2>1) Generation Console</h2>
+      
       <label>Mode</label>
-      <select id="mode" onchange="applyModeTemplate(); updateContextBadge(); loadFiles();">
-        <option value="levelgen">LevelGen room file</option>
-        <option value="scenario">Cerebrum scenario script</option>
+      <select id="mode" onchange="applyModeTemplate(); loadFiles();">
+        <option value="pipeline">Multi-Agentic Pipeline (Orchestrator + 3 Agents)</option>
+        <option value="levelgen">LevelGen Environment Agent Only</option>
+        <option value="character">Character Creation Agent Only</option>
+        <option value="scenario">Scenario Scripting Agent Only</option>
       </select>
-      <div id="activeContextInfo" style="margin-top: 8px; font-weight: bold; color: #065f46; display: none;">
-        ✓ Active LevelGen Context Loaded (Scenario will match the active layout)
-      </div>
 
-      <label>Output file name</label>
-      <input id="fileName" type="text" value="ManualStyle_MedRoom_AI" />
+      <label>File Prefix Name</label>
+      <input id="fileName" type="text" value="AgenticSimulation" />
 
-      <label>Top reference files to include</label>
+      <label>Top Context Knowledge Files</label>
       <input id="topK" type="number" value="12" min="3" max="30" />
 
-      <label>Prompt</label>
+      <label>Main Orchestrator Prompt</label>
       <textarea id="prompt"></textarea>
 
-      <label>Optional image/screenshot</label>
-      <input id="image" type="file" accept="image/*" />
+      <label>Optional Scene Screenshot (Ollama Vision)</label>
+      <input id="image" type="file" accept="image/*" style="width: 100%;" />
 
-      <p>
-        <button class="good" onclick="generate()">Generate and Save</button>
-        <button class="secondary" onclick="evaluateCurrent()">Evaluate Current Output</button>
-      </p>
-      <p class="small">Tip: for LevelGen, first write and test a level manually, then put the corrected .txt in <b>corrected-levelgen-examples</b> and click Refresh.</p>
+      <div style="margin-top: 18px; display: flex; gap: 10px;">
+        <button class="good" style="flex: 1;" onclick="generate()">Run Generation</button>
+        <button class="secondary" onclick="evaluateCurrent()">Evaluate Main Output</button>
+      </div>
     </div>
 
-    <div class="box">
-      <h2>2) Project Reference Files</h2>
-      <p class="small">These are files the AI can read. Check important files to force them into the prompt.</p>
-      <button onclick="loadFiles()">Refresh File Index</button>
-      <div id="fileList" class="files">No files loaded yet.</div>
+    <div class="card">
+      <h2>2) RAG Reference Files</h2>
+      <p style="font-size: 12px; color: var(--text-muted); margin-top: -6px;">Force-include files by checking them to seed the prompt knowledge base.</p>
+      <button class="secondary" style="margin-bottom: 10px;" onclick="loadFiles()">Refresh Index</button>
+      <div id="fileList" class="files-container">Loading reference files...</div>
     </div>
   </div>
 
-  <div class="box">
-    <h2>Generated Output</h2>
-    <div id="saveInfo" class="small"></div>
-    <div style="margin-top: 8px; margin-bottom: 8px;">
-      <button id="proceedBtn" class="good" style="display: none;" onclick="proceedToScenario()">Proceed to Scenario Prompting</button>
-    </div>
-    <pre id="output">Waiting...</pre>
+  <div class="card" id="orchestratorPlanSection" style="display: none;">
+    <h2>📋 Orchestrator Plan</h2>
+    <div id="planContent" class="plan-box" style="white-space: pre-wrap; font-family: monospace;"></div>
   </div>
 
-  <div class="box">
-    <h2>Evaluation</h2>
-    <pre id="evaluation">No evaluation yet.</pre>
+  <div class="card" id="outputCard">
+    <h2>Output Viewer</h2>
+    <div id="saveInfo" style="margin-bottom: 12px; font-size: 13px;"></div>
+    
+    <div id="singleOutputContainer">
+      <pre id="output">Outputs will display here...</pre>
+    </div>
+
+    <div id="pipelineOutputContainer" class="pipeline-container" style="display: none;">
+      <!-- LevelGen Card -->
+      <div class="agent-card levelgen">
+        <div class="agent-header">
+          <span class="agent-title">🛠️ LevelGen Layout Agent Output</span>
+          <span class="badge" id="levelgenEvalBadge">No Evaluation</span>
+        </div>
+        <pre id="levelgenOutput">LevelGen script output...</pre>
+      </div>
+
+      <!-- Character Card -->
+      <div class="agent-card character">
+        <div class="agent-header">
+          <span class="agent-title">👤 Character Agent Output</span>
+          <span class="badge" id="characterEvalBadge">No Evaluation</span>
+        </div>
+        <pre id="characterOutput">Character script output...</pre>
+      </div>
+
+      <!-- Scenario Card -->
+      <div class="agent-card scenario">
+        <div class="agent-header">
+          <span class="agent-title">🎬 Scenario Scripting Agent Output</span>
+          <span class="badge" id="scenarioEvalBadge">No Evaluation</span>
+        </div>
+        <pre id="scenarioOutput">Scenario script output...</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="evaluationCard">
+    <h2>Evaluation &amp; Correctness Metrics</h2>
+    <pre id="evaluation">Waiting for generation to evaluate...</pre>
   </div>
 
   <script>
     function mode() { return document.getElementById("mode").value; }
 
     function applyModeTemplate() {
-      if (mode() === "levelgen") {
+      const m = mode();
+      if (m === "pipeline") {
+        document.getElementById("fileName").value = "MultiAgentSim";
+        document.getElementById("prompt").value =
+`Create a simulation where a patient named Emily, 28 years old, is resting in Bed 1 in a medical exam room. 
+Emily is experiencing high fever symptoms (Temperature 39.1, Heart Rate 98, SpO2 96). 
+The nurse enters the room, washes hands, explains she will check the vitals, and asks the user choices for checking the cannula or replacing it.
+The nurse then records vitals and completes the task.`;
+      } else if (m === "levelgen") {
         document.getElementById("fileName").value = "ManualStyle_MedRoom_AI";
         document.getElementById("prompt").value =
 `Generate a complex medical exam room LevelGen file based on the corrected/manual examples.
 Include a patient bed, patient, wall objects, sink/handwashing area, IV bottles/bags, vitals monitor, medical cart, chair, table, and supplies.
 Mimic the exact LevelGen row style from the examples. Output only the raw LevelGen file.`;
-      } else {
-        document.getElementById("fileName").value = "NurseHandWash_AI";
+      } else if (m === "character") {
+        document.getElementById("fileName").value = "EmilyVitals_AI";
         document.getElementById("prompt").value =
-`Create a Cerebrum script where the nurse washes their hands before checking on the patient.
-Use actual Do statements, not only Prompt statements.
-Include walking to sink, turning water on, applying soap, scrubbing, rinsing, drying hands, and returning to patient.
-Output only the raw .txt script.`;
+`Configure patient Emily, 28 years old, with high fever vitals: Temp 39.1, HR 98, SpO2 96.
+Style her appearance with young age, brown hair, normal height, and setting frown face expressions.`;
+      } else {
+        document.getElementById("fileName").value = "NurseCheckVitals_AI";
+        document.getElementById("prompt").value =
+`Create a scenario script where the nurse washes hands and checks the vitals of the patient.
+Coordinate choices to check or replace the cannula, wait for choice selection, and return.`;
       }
     }
 
     async function loadStatus() {
       const line = document.getElementById("statusLine");
-      line.textContent = "Loading...";
-      const res = await fetch("/api/status");
-      const data = await res.json();
-      line.innerHTML = `<span class="ok">Connected</span> | Model: ${data.model} | Files indexed: ${data.fileCount} | Project: ${data.projectRoot}`;
-      loadFiles();
+      line.textContent = "Loading status...";
+      try {
+        const res = await fetch("/api/status");
+        const data = await res.json();
+        line.innerHTML = `✓ Connected | Model: ${data.model} | Files: ${data.fileCount}`;
+        loadFiles();
+      } catch (err) {
+        line.innerHTML = `✗ Offline | Error: ${err.message}`;
+      }
     }
 
     async function loadFiles() {
       const container = document.getElementById("fileList");
-      container.textContent = "Loading files...";
-      const prompt = encodeURIComponent(document.getElementById("prompt").value);
-      const res = await fetch(`/api/files?mode=${mode()}&prompt=${prompt}`);
-      const data = await res.json();
-      container.innerHTML = "";
-      for (const f of data.files.slice(0, 80)) {
-        const row = document.createElement("div");
-        row.className = "file-row";
-        const checked = f.rel.toLowerCase().includes("corrected") || f.rel.toLowerCase().includes("manual-levelgen");
-        row.innerHTML = `
-          <input type="checkbox" class="fileCheck" value="${escapeHtml(f.path)}" ${checked ? "checked" : ""}>
-          <span title="${escapeHtml(f.path)}">${escapeHtml(f.rel)}</span>
-          <span class="badge">${f.score}</span>
-        `;
-        container.appendChild(row);
+      container.textContent = "Loading file index...";
+      const queryPrompt = encodeURIComponent(document.getElementById("prompt").value);
+      try {
+        const res = await fetch(`/api/files?mode=${mode() === "pipeline" ? "scenario" : mode()}&prompt=${queryPrompt}`);
+        const data = await res.json();
+        container.innerHTML = "";
+        for (const f of data.files.slice(0, 80)) {
+          const row = document.createElement("div");
+          row.className = "file-row";
+          const checked = f.rel.toLowerCase().includes("corrected") || f.rel.toLowerCase().includes("manual-levelgen");
+          row.innerHTML = `
+            <input type="checkbox" class="fileCheck" value="${escapeHtml(f.path)}" ${checked ? "checked" : ""}>
+            <span title="${escapeHtml(f.path)}">${escapeHtml(f.rel)}</span>
+            <span class="score">${f.score}</span>
+          `;
+          container.appendChild(row);
+        }
+      } catch (err) {
+        container.textContent = "Failed to load files: " + err.message;
       }
     }
 
@@ -143,75 +402,118 @@ Output only the raw .txt script.`;
       return [...document.querySelectorAll(".fileCheck:checked")].map(x => x.value);
     }
 
-    let hasGeneratedLevelGen = false;
-
-    function updateContextBadge() {
-      const badge = document.getElementById("activeContextInfo");
-      if (mode() === "scenario" && hasGeneratedLevelGen) {
-        badge.style.display = "block";
-      } else {
-        badge.style.display = "none";
-      }
-    }
-
-    function proceedToScenario() {
-      document.getElementById("mode").value = "scenario";
-      document.getElementById("fileName").value = "NurseSequence_MatchingLevelGen";
-      document.getElementById("prompt").value =
-`Create a Cerebrum scenario script that matches the layout of the previously generated levelgen.
-Refer ONLY to locations and objects that were generated in the levelgen layout above (e.g. Bed 1, BedsideHead 1, etc.).
-Include Do statements for the nurse's sequence of actions.`;
-      document.getElementById("proceedBtn").style.display = "none";
-      updateContextBadge();
-      loadFiles();
-    }
-
     async function generate() {
       const output = document.getElementById("output");
       const info = document.getElementById("saveInfo");
-      output.textContent = "Generating with local Ollama...";
+      const planSection = document.getElementById("orchestratorPlanSection");
+      const planContent = document.getElementById("planContent");
+      
+      const singleContainer = document.getElementById("singleOutputContainer");
+      const pipelineContainer = document.getElementById("pipelineOutputContainer");
+
+      planSection.style.display = "none";
       info.textContent = "";
 
       const formData = new FormData();
-      formData.append("mode", mode());
       formData.append("fileName", document.getElementById("fileName").value);
       formData.append("prompt", document.getElementById("prompt").value);
       formData.append("topK", document.getElementById("topK").value);
       formData.append("selectedPaths", JSON.stringify(selectedPaths()));
+      
       const image = document.getElementById("image").files[0];
       if (image) formData.append("image", image);
 
-      try {
-        const res = await fetch("/generate", { method: "POST", body: formData });
-        const data = await res.json();
-        if (!res.ok) {
-          output.textContent = JSON.stringify(data, null, 2);
-          return;
-        }
-        output.textContent = data.script;
-        info.innerHTML = `<span class="ok">Saved</span> ${escapeHtml(data.savedPath)}<br><span class="ok">Active</span> ${escapeHtml(data.activePath)}<br><span class="badge">Used ${data.usedFiles.length} reference files</span>`;
-        document.getElementById("evaluation").textContent = JSON.stringify(data.localEvaluation, null, 2);
+      if (mode() === "pipeline") {
+        output.textContent = "";
+        singleContainer.style.display = "none";
+        pipelineContainer.style.display = "flex";
         
-        if (mode() === "levelgen") {
-          hasGeneratedLevelGen = true;
-          document.getElementById("proceedBtn").style.display = "inline-block";
-        } else {
-          document.getElementById("proceedBtn").style.display = "none";
+        document.getElementById("levelgenOutput").textContent = "Planning & Generating environment layout...";
+        document.getElementById("characterOutput").textContent = "Waiting for layout...";
+        document.getElementById("scenarioOutput").textContent = "Waiting for layout & character...";
+
+        try {
+          const res = await fetch("/generate-sequential", { method: "POST", body: formData });
+          const data = await res.json();
+          
+          if (!res.ok) {
+            document.getElementById("levelgenOutput").textContent = "Stopped. Error:\n" + JSON.stringify(data, null, 2);
+            return;
+          }
+
+          // Render Plan
+          planSection.style.display = "block";
+          planContent.textContent = JSON.stringify(data.orchestratorPlan, null, 2);
+
+          // Render LevelGen Output
+          const lg = data.results.levelgen;
+          document.getElementById("levelgenOutput").textContent = lg.script;
+          renderBadge("levelgenEvalBadge", lg.localEvaluation);
+
+          // Render Character Output
+          const ch = data.results.character;
+          document.getElementById("characterOutput").textContent = ch.script;
+          renderBadge("characterEvalBadge", ch.localEvaluation);
+
+          // Render Scenario Output
+          const sc = data.results.scenario;
+          document.getElementById("scenarioOutput").textContent = sc.script;
+          renderBadge("scenarioEvalBadge", sc.localEvaluation);
+
+          info.innerHTML = `<span class="badge badge-status">Pipeline Completed</span> Multi-Agent scripts saved to their respective directories.`;
+          document.getElementById("evaluation").textContent = "Evaluation results loaded in each agent section above.";
+        } catch (err) {
+          document.getElementById("levelgenOutput").textContent = "ERROR: " + err.message;
         }
-        updateContextBadge();
-      } catch (err) {
-        output.textContent = "ERROR: " + err.message;
+      } else {
+        singleContainer.style.display = "block";
+        pipelineContainer.style.display = "none";
+        output.textContent = "Generating with specialized agent...";
+        
+        formData.append("mode", mode());
+
+        try {
+          const res = await fetch("/generate", { method: "POST", body: formData });
+          const data = await res.json();
+          if (!res.ok) {
+            output.textContent = JSON.stringify(data, null, 2);
+            return;
+          }
+          output.textContent = data.script;
+          info.innerHTML = `✓ Saved: ${escapeHtml(data.savedPath)}<br>✓ Active: ${escapeHtml(data.activePath)}`;
+          document.getElementById("evaluation").textContent = JSON.stringify(data.localEvaluation, null, 2);
+        } catch (err) {
+          output.textContent = "ERROR: " + err.message;
+        }
+      }
+    }
+
+    function renderBadge(elementId, evaluation) {
+      const badge = document.getElementById(elementId);
+      if (!evaluation) {
+        badge.textContent = "No evaluation";
+        badge.className = "badge";
+        return;
+      }
+      if (evaluation.pass) {
+        badge.textContent = "Passed Checks";
+        badge.className = "badge badge-status";
+      } else {
+        badge.textContent = `Failed (${evaluation.errors.length} errs)`;
+        badge.className = "badge badge-warn";
       }
     }
 
     async function evaluateCurrent() {
       const evaluation = document.getElementById("evaluation");
-      evaluation.textContent = "Evaluating with local checks + Ollama...";
+      evaluation.textContent = "Evaluating currently displayed output...";
+      
       const payload = {
-        mode: mode(),
-        script: document.getElementById("output").textContent,
+        mode: mode() === "pipeline" ? "scenario" : mode(),
+        script: mode() === "pipeline" ? document.getElementById("scenarioOutput").textContent : document.getElementById("output").textContent,
         prompt: document.getElementById("prompt").value
       };
+      
       try {
         const res = await fetch("/evaluate", {
           method: "POST",

@@ -289,25 +289,32 @@ Do not generate a room or general scenario actions.`;
         const ch = data.results.character;
 
         output.textContent =
-`===== LEVELGEN =====
+`===== MASTER SIMULATION PLAN: ${data.orchestratorPlan.title || 'Untitled'} =====
+Goal: ${data.orchestratorPlan.goal || 'N/A'}
+- LevelGen Task: ${data.orchestratorPlan.levelgen_task || 'N/A'}
+- Character Task: ${data.orchestratorPlan.character_task || 'N/A'}
+- Scenario Task: ${data.orchestratorPlan.scenario_task || 'N/A'}
+
+===== LEVELGEN SCRIPT =====
 ${lg.script}
 
-===== SCENARIO =====
-${sc.script}
+===== CHARACTER CUSTOMIZATION =====
+${ch.script}
 
-===== CHARACTER =====
-${ch.script}`;
+===== SCENARIO SCRIPT =====
+${sc.script}`;
 
         info.innerHTML =
-          `<span class="ok">Sequential generation completed in order:</span> LevelGen → Scenario → Character<br>` +
+          `<span class="ok">Multi-agent generation completed with Master Simulation Plan:</span><br>` +
           `<b>LevelGen:</b> ${escapeHtml(lg.savedPath)}<br>` +
-          `<b>Scenario:</b> ${escapeHtml(sc.savedPath)}<br>` +
-          `<b>Character:</b> ${escapeHtml(ch.savedPath)}`;
+          `<b>Character:</b> ${escapeHtml(ch.savedPath)}<br>` +
+          `<b>Scenario:</b> ${escapeHtml(sc.savedPath)}`;
 
         evaluation.textContent = JSON.stringify({
-          levelgen: lg.localEvaluation,
-          scenario: sc.localEvaluation,
-          character: ch.localEvaluation
+          orchestratorPlan: data.orchestratorPlan,
+          levelgenEvaluation: lg.localEvaluation,
+          characterEvaluation: ch.localEvaluation,
+          scenarioEvaluation: sc.localEvaluation
         }, null, 2);
       } catch (err) {
         output.textContent = "ERROR: " + err.message;

@@ -302,7 +302,7 @@ function outputRulesForMode(mode, roomName) {
   }
 
   if (mode === "character") {
-    return "Generate only the patient/character customization text. Use the Patient and appearance reference files. Do not generate LevelGen rows and do not generate unrelated scenario actions. Output only raw file content.";
+    return "Generate a Cerebrum scenario script (.txt) for patient/character setup and styling. Output only raw script lines following the Cerebrum Scripting Guide. Initialize patient variables (e.g., $PatientName = '...', $PatientAge = 87, $Temperature = 36.5, $HR = 70, $BP = '150/71', $Respiration = 20, $SpO2 = 100, $PatientSpeak = '...') and call styling/appearance Do scripts (e.g., Do 'NEWS_Nurse/PatientCreations/Age/75' or Do $Patient SetHairColor Dark) referencing the bed location and patient reference variables. Do not generate LevelGen room layout rows or unrelated scenario clinical actions.";
   }
 
   return "Generate a Cerebrum scenario .txt file. Output only raw script lines. Use Do statements for real actions and Prompt only for visible dialogue. Do not generate LevelGen rows or character appearance configuration unless the scenario syntax requires a patient reference.";
@@ -310,12 +310,54 @@ function outputRulesForMode(mode, roomName) {
 
 function buildSequentialTasks(userPrompt) {
   return {
-    levelgen: `PHYSICAL LEVELGEN TASK ONLY:\nFrom the overall user request below, generate only the physical room/environment setup. Do not write scenario behavior. Do not write detailed character appearance.\n\nOVERALL REQUEST:\n${userPrompt}`,
-
-    scenario: `SCENARIO TASK ONLY:\nFrom the overall user request below, generate only scenario behavior, actions, prompts, and clinical flow. Do not change the physical LevelGen room layout. Do not write detailed character appearance configuration.\n\nOVERALL REQUEST:\n${userPrompt}`,
-
-    character: `CHARACTER TASK ONLY:\nFrom the overall user request below, generate only patient/character creation or appearance customization using the available Patient/appearance references. Do not generate LevelGen rows. Do not generate scenario behavior.\n\nOVERALL REQUEST:\n${userPrompt}`
+    title: "Sequential Simulation Plan",
+    goal: "Fulfill the user request sequentially",
+    levelgen_task: `Generate the physical room/environment setup only. Do not write scenario behavior or detailed character appearance. Overall request:\n${userPrompt}`,
+    character_task: `Generate the patient/character setup and appearance customization only. Do not generate LevelGen rows or scenario behavior. Overall request:\n${userPrompt}`,
+    scenario_task: `Generate scenario clinical flow and logic only. Do not generate LevelGen layout or character appearance. Overall request:\n${userPrompt}`
   };
+}
+
+async function runOrchestrator(userPrompt, roomName) {
+  const prompt = `
+You are the Manager/Orchestrator Agent for a Unity Cerebrum simulation creation pipeline.
+Your job is to read the user request and generate a single unified Master Simulation Plan.
+This plan must outline the overall goals, and divide the requirements into a list of clear, structured tasks for 3 specialized sub-agents:
+1. LevelGen Agent ("levelgen_task"): For generating the physical environment and layout (specifying Room, Location, child items matching available slots and hard constraints).
+   CRITICAL CONSTRAINT FOR RoomMedExam_base: RoomMedExam_base ONLY supports: Bed (1, 2, 3), Wall (1, 2, 3), BedsideHead (1, 2), BedsideMid (1, 2), BedsideFoot (1, 2), Cart (1, 2), and Screen (1, 2, 3, 4).
+   NEVER ask to place a Nurse, Nurse Station, Doctor, Chair, Desk, Bin, Cabinet, or BedsideHeadLeft in RoomMedExam_base. Physical layouts do not contain actor characters; character placement and actions are handled purely in character/scenario scripts.
+2. Character Agent ("character_task"): For creating the character/patient setup script, setting patient name, age, vitals variables ($Temperature, $HR, $BP, $Respiration, $SpO2), character dialogue ($PatientSpeak), and styling appearance Do calls (e.g. SetHairColor, SetHairStyle, setblend, rigs) following the Cerebrum Scripting Guide.
+3. Scenario Agent ("scenario_task"): For scripting clinical workflow logic (using Do statements for actions/dialogue, Prompt statements, Wait statements, conditionals, choices, and ending with Return).
+
+${roomName ? `Target Room: ${roomName}` : ""}
+
+OVERALL USER REQUEST:
+${userPrompt}
+
+You MUST return a JSON object with this exact schema:
+{
+  "title": "A short descriptive title for the Master Plan",
+  "goal": "Overview of what this simulation accomplishes",
+  "levelgen_task": "Detailed, specific tasks for the physical level setup...",
+  "character_task": "Detailed, specific tasks for setting patient details, vitals variables, speech, and look styling...",
+  "scenario_task": "Detailed, specific tasks for the scenario clinical flow, actions, prompts, and conditions..."
+}
+Do not return any explanations, note blocks, or markdown code fences (like \`\`\`json). Just the raw JSON.
+`;
+
+  try {
+    const data = await callOllama({
+      model: OLLAMA_MODEL,
+      prompt,
+      stream: false,
+      format: "json"
+    });
+    const text = cleanGenerated(data.response || "{}");
+    return JSON.parse(text);
+  } catch (err) {
+    console.warn("⚠️ Failed to parse orchestrator plan, falling back to sequential default tasks:", err);
+    return buildSequentialTasks(userPrompt);
+  }
 }
 
 async function generateOneMode({
@@ -326,7 +368,8 @@ async function generateOneMode({
   topK,
   imageBase64 = null,
   roomName = "RoomMedExam_base",
-  strictConstraints = true
+  strictConstraints = true,
+  additionalContext = ""
 }) {
   if (!userPrompt.trim()) {
     return {
@@ -358,12 +401,18 @@ async function generateOneMode({
     topK
   });
 
-  const prompt = `
+  let prompt = `
 You are connected to a local Unity/Cerebrum project.
 You must generate files based on the reference project files below.
 
 ${context}
+`;
 
+  if (additionalContext) {
+    prompt += `\n[ADDITIONAL PIPELINE CONTEXT]\n${additionalContext}\n`;
+  }
+
+  prompt += `
 TASK MODE: ${mode}
 ${mode === "levelgen" ? `SELECTED ROOM: ${roomName}` : ""}
 USER REQUEST:
@@ -527,69 +576,115 @@ export function installLevelGenRoutes(app) {
         return res.status(400).json({ error: "Prompt is required." });
       }
 
-      const tasks = buildSequentialTasks(userPrompt);
+      console.log(`🤖 Orchestrator planning started for prompt: "${userPrompt}"`);
+      const plan = await runOrchestrator(userPrompt, roomName);
+      console.log(`📋 Orchestrator plan generated:`, JSON.stringify(plan, null, 2));
+
+      // Guard LevelGen sub-prompt specifically using the sub-task description
+      if (strictConstraints) {
+        const levelGenSubPrompt = plan.levelgen_task || plan.levelgen || userPrompt;
+        const promptProblems = guardLevelGenPrompt(levelGenSubPrompt, roomName);
+        if (promptProblems.length > 0) {
+          return res.status(400).json({
+            blocked: true,
+            status: 400,
+            stage: "prompt-guard",
+            error: "IMPOSSIBLE_LEVELGEN_REQUEST",
+            roomName,
+            problems: promptProblems,
+            orchestratorPlan: plan
+          });
+        }
+      }
+
       const results = {};
 
+      // 1. Run LevelGen Agent (disable prompt-guard validation within generateOneMode, as we guarded it above)
+      console.log("🛠️ Running LevelGen Agent...");
       results.levelgen = await generateOneMode({
         mode: "levelgen",
-        userPrompt: tasks.levelgen,
+        userPrompt: `You are the LevelGen Agent. Your task is defined in the Master Simulation Plan under "levelgen_task":\n"${plan.levelgen_task || plan.levelgen || userPrompt}"\n\nReference the Master Plan context:\nGoal: ${plan.goal}`,
         fileName: `${baseName}_LevelGen`,
         selectedPaths,
         topK,
         imageBase64,
         roomName,
-        strictConstraints
+        strictConstraints: false,
+        additionalContext: `MASTER SIMULATION PLAN:\n${JSON.stringify(plan, null, 2)}`
       });
 
       if (results.levelgen.blocked) {
         return res.status(results.levelgen.status || 400).json({
           error: "Sequential generation stopped at LevelGen.",
           stoppedAt: "levelgen",
+          orchestratorPlan: plan,
           results
         });
       }
 
-      results.scenario = await generateOneMode({
-        mode: "scenario",
-        userPrompt: tasks.scenario,
-        fileName: `${baseName}_Scenario`,
-        selectedPaths,
-        topK,
-        imageBase64: null,
-        roomName,
-        strictConstraints: false
-      });
-
-      if (results.scenario.blocked) {
-        return res.status(results.scenario.status || 400).json({
-          error: "Sequential generation stopped at Scenario.",
-          stoppedAt: "scenario",
-          results
-        });
+      // 2. Run Character Agent
+      console.log("👤 Running Character Agent...");
+      let characterContext = `MASTER SIMULATION PLAN:\n${JSON.stringify(plan, null, 2)}`;
+      if (results.levelgen?.script) {
+        characterContext += `\n\nGENERATED LEVELGEN LAYOUT (YOU MUST COORDINATE AND PLACE PATIENT IN A SUPPORTED BED/SLOT DETECTED HERE):\n${results.levelgen.script}`;
       }
 
       results.character = await generateOneMode({
         mode: "character",
-        userPrompt: tasks.character,
+        userPrompt: `You are the Character Agent. Your task is defined in the Master Simulation Plan under "character_task":\n"${plan.character_task || plan.character || userPrompt}"\n\nReference the Master Plan context:\nGoal: ${plan.goal}`,
         fileName: `${baseName}_Character`,
         selectedPaths,
         topK,
         imageBase64: null,
         roomName,
-        strictConstraints: false
+        strictConstraints: false,
+        additionalContext: characterContext
       });
 
       if (results.character.blocked) {
         return res.status(results.character.status || 400).json({
           error: "Sequential generation stopped at Character.",
           stoppedAt: "character",
+          orchestratorPlan: plan,
+          results
+        });
+      }
+
+      // 3. Run Scenario Agent with context from LevelGen and Character outputs
+      console.log("🎬 Running Scenario Agent...");
+      let scenarioContext = `MASTER SIMULATION PLAN:\n${JSON.stringify(plan, null, 2)}`;
+      if (results.levelgen?.script) {
+        scenarioContext += `\n\nGENERATED LEVELGEN LAYOUT (YOU MUST MATCH THIS EXACT LAYOUT AND SLOTS/PREFABS):\n${results.levelgen.script}`;
+      }
+      if (results.character?.script) {
+        scenarioContext += `\n\nGENERATED CHARACTER SETUP (YOU MUST INTEGRATE OR REFER TO THESE VARIABLES):\n${results.character.script}`;
+      }
+
+      results.scenario = await generateOneMode({
+        mode: "scenario",
+        userPrompt: `You are the Scenario Agent. Your task is defined in the Master Simulation Plan under "scenario_task":\n"${plan.scenario_task || plan.scenario || userPrompt}"\n\nReference the Master Plan context:\nGoal: ${plan.goal}`,
+        fileName: `${baseName}_Scenario`,
+        selectedPaths,
+        topK,
+        imageBase64: null,
+        roomName,
+        strictConstraints: false,
+        additionalContext: scenarioContext
+      });
+
+      if (results.scenario.blocked) {
+        return res.status(results.scenario.status || 400).json({
+          error: "Sequential generation stopped at Scenario.",
+          stoppedAt: "scenario",
+          orchestratorPlan: plan,
           results
         });
       }
 
       res.json({
         ok: true,
-        order: ["levelgen", "scenario", "character"],
+        orchestratorPlan: plan,
+        order: ["levelgen", "character", "scenario"],
         results
       });
     } catch (err) {

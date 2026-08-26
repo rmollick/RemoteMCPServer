@@ -183,15 +183,16 @@ function parseCount(raw) {
 function explicitCountFor(prompt, termPattern) {
   const countPattern = "(\\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)";
   const re = new RegExp(`\\b${countPattern}\\s+${termPattern}\\b`, "i");
-  const match = prompt.match(re);
+  const match = String(prompt || "").match(re);
   return match ? parseCount(match[1]) : null;
 }
 
 function termMentioned(prompt, termPattern) {
-  return new RegExp(`\\b${termPattern}\\b`, "i").test(prompt);
+  return new RegExp(`\\b${termPattern}\\b`, "i").test(String(prompt || ""));
 }
 
-export function guardLevelGenPrompt(prompt, roomName) {
+export function guardLevelGenPrompt(rawPrompt, roomName) {
+  const prompt = String(rawPrompt || "");
   const problems = [];
   const roomRules = ROOM_CONSTRAINTS[roomName];
 
