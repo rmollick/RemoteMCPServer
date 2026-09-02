@@ -1,38 +1,195 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8" />
   <title>Cerebrum Ollama RAG + LevelGen</title>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 1150px; margin: 24px auto; padding: 16px; background: #f3f4f6; color: #111827; }
-    h1 { margin-bottom: 4px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .box { background: white; padding: 18px; border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.08); margin-bottom: 16px; }
-    label { font-weight: 700; display: block; margin-top: 10px; }
-    textarea { width: 100%; min-height: 145px; font-size: 14px; padding: 10px; box-sizing: border-box; }
-    input, select, button { font-size: 14px; padding: 9px; margin-top: 5px; }
-    input[type="text"], input[type="number"], select { width: 100%; box-sizing: border-box; }
-    input[type="checkbox"] { width: auto; margin-right: 8px; }
-    button { cursor: pointer; font-weight: 700; border: 0; border-radius: 8px; background: #111827; color: white; padding: 10px 14px; }
-    button.secondary { background: #374151; }
-    button.good { background: #065f46; }
-    button.seq { background: #1d4ed8; }
-    pre { background: #111827; color: #e5e7eb; padding: 14px; white-space: pre-wrap; min-height: 220px; border-radius: 10px; overflow: auto; }
-    .small { font-size: 13px; color: #4b5563; }
-    .files { max-height: 280px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
-    .file-row { display: grid; grid-template-columns: 24px 1fr 70px; gap: 6px; align-items: center; font-size: 12px; border-bottom: 1px solid #f3f4f6; padding: 5px 0; }
-    .badge { display: inline-block; background: #e5e7eb; padding: 3px 7px; border-radius: 999px; font-size: 12px; margin-right: 4px; }
-    .ok { color: #065f46; font-weight: 700; }
-    .warn { color: #92400e; font-weight: 700; }
-    .err { color: #991b1b; font-weight: 700; }
-    .constraint-box { margin-top: 14px; padding: 12px; border: 2px solid #d1d5db; border-radius: 10px; background: #f9fafb; }
-    .checkbox-label { display: flex; align-items: center; font-weight: 700; margin-top: 10px; }
-    .top-nav { display: flex; gap: 14px; align-items: center; margin-bottom: 28px; }
-    .nav-btn { display: inline-block; padding: 14px 22px; border-radius: 10px; background: #374151; color: white; text-decoration: none; font-weight: 800; font-size: 18px; transition: 0.15s ease; }
-    .nav-btn:hover { background: #1f2937; transform: translateY(-1px); }
-    .nav-btn.active { background: #111827; }
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1150px;
+      margin: 24px auto;
+      padding: 16px;
+      background: #f3f4f6;
+      color: #111827;
+    }
+
+    h1 {
+      margin-bottom: 4px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .box {
+      background: white;
+      padding: 18px;
+      border-radius: 12px;
+      box-shadow: 0 1px 6px rgba(0, 0, 0, .08);
+      margin-bottom: 16px;
+    }
+
+    label {
+      font-weight: 700;
+      display: block;
+      margin-top: 10px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 145px;
+      font-size: 14px;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+
+    input,
+    select,
+    button {
+      font-size: 14px;
+      padding: 9px;
+      margin-top: 5px;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    select {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    input[type="checkbox"] {
+      width: auto;
+      margin-right: 8px;
+    }
+
+    button {
+      cursor: pointer;
+      font-weight: 700;
+      border: 0;
+      border-radius: 8px;
+      background: #111827;
+      color: white;
+      padding: 10px 14px;
+    }
+
+    button.secondary {
+      background: #374151;
+    }
+
+    button.good {
+      background: #065f46;
+    }
+
+    button.seq {
+      background: #1d4ed8;
+    }
+
+    pre {
+      background: #111827;
+      color: #e5e7eb;
+      padding: 14px;
+      white-space: pre-wrap;
+      min-height: 220px;
+      border-radius: 10px;
+      overflow: auto;
+    }
+
+    .small {
+      font-size: 13px;
+      color: #4b5563;
+    }
+
+    .files {
+      max-height: 280px;
+      overflow: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 8px;
+    }
+
+    .file-row {
+      display: grid;
+      grid-template-columns: 24px 1fr 70px;
+      gap: 6px;
+      align-items: center;
+      font-size: 12px;
+      border-bottom: 1px solid #f3f4f6;
+      padding: 5px 0;
+    }
+
+    .badge {
+      display: inline-block;
+      background: #e5e7eb;
+      padding: 3px 7px;
+      border-radius: 999px;
+      font-size: 12px;
+      margin-right: 4px;
+    }
+
+    .ok {
+      color: #065f46;
+      font-weight: 700;
+    }
+
+    .warn {
+      color: #92400e;
+      font-weight: 700;
+    }
+
+    .err {
+      color: #991b1b;
+      font-weight: 700;
+    }
+
+    .constraint-box {
+      margin-top: 14px;
+      padding: 12px;
+      border: 2px solid #d1d5db;
+      border-radius: 10px;
+      background: #f9fafb;
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      font-weight: 700;
+      margin-top: 10px;
+    }
+
+    .top-nav {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+
+    .nav-btn {
+      display: inline-block;
+      padding: 14px 22px;
+      border-radius: 10px;
+      background: #374151;
+      color: white;
+      text-decoration: none;
+      font-weight: 800;
+      font-size: 18px;
+      transition: 0.15s ease;
+    }
+
+    .nav-btn:hover {
+      background: #1f2937;
+      transform: translateY(-1px);
+    }
+
+    .nav-btn.active {
+      background: #111827;
+    }
   </style>
 </head>
+
 <body>
   <div style="padding:10px; background:#111827; display:flex; gap:10px;">
     <a href="/index.html" style="color:white; text-decoration:none; font-weight:bold;">Remote MCP Agent</a>
@@ -88,7 +245,8 @@
           Enforce hard LevelGen constraints
         </label>
 
-        <p class="small">When checked, impossible prompts are blocked before Ollama. Invalid generated LevelGen files are also blocked before saving.</p>
+        <p class="small">When checked, impossible prompts are blocked before Ollama. Invalid generated LevelGen files
+          are also blocked before saving.</p>
       </div>
 
       <label>Prompt</label>
@@ -103,7 +261,8 @@
         <button class="secondary" onclick="evaluateCurrent()">Evaluate Current Output</button>
       </p>
 
-      <p class="small">For your weekly task, leave hard constraints checked. Use the Sequential button when the prompt should be chunked into three separate files.</p>
+      <p class="small">For your weekly task, leave hard constraints checked. Use the Sequential button when the prompt
+        should be chunked into three separate files.</p>
     </div>
 
     <div class="box">
@@ -139,20 +298,20 @@
       if (mode() === "levelgen") {
         document.getElementById("fileName").value = "AI_MedicalRoom_Test01";
         document.getElementById("prompt").value =
-`Create a RoomMedExam_base medical exam room with 2 beds.
+          `Create a RoomMedExam_base medical exam room with 2 beds.
 Put one patient in Bed 1.
 Add valid wall objects, IV equipment, and a medical cart.
 Use only objects and locations supported by the LevelGen constraints.`;
       } else if (mode() === "scenario") {
         document.getElementById("fileName").value = "NurseAssessment_AI";
         document.getElementById("prompt").value =
-`Create a Cerebrum scenario where the nurse approaches the patient, checks vital signs, speaks to the patient, and completes the assessment.
+          `Create a Cerebrum scenario where the nurse approaches the patient, checks vital signs, speaks to the patient, and completes the assessment.
 Use actual Do statements for actions.
 Output only the raw scenario .txt script.`;
       } else {
         document.getElementById("fileName").value = "PatientAppearance_AI";
         document.getElementById("prompt").value =
-`Create only the patient appearance/customization for an elderly male patient.
+          `Create only the patient appearance/customization for an elderly male patient.
 Use the available Patient appearance and CreatePatient reference files.
 Do not generate a room or general scenario actions.`;
       }
@@ -289,7 +448,7 @@ Do not generate a room or general scenario actions.`;
         const ch = data.results.character;
 
         output.textContent =
-`===== MASTER SIMULATION PLAN: ${data.orchestratorPlan.title || 'Untitled'} =====
+          `===== MASTER SIMULATION PLAN: ${data.orchestratorPlan.title || 'Untitled'} =====
 Goal: ${data.orchestratorPlan.goal || 'N/A'}
 - LevelGen Task: ${data.orchestratorPlan.levelgen_task || 'N/A'}
 - Character Task: ${data.orchestratorPlan.character_task || 'N/A'}
@@ -360,4 +519,5 @@ ${sc.script}`;
     loadStatus();
   </script>
 </body>
+
 </html>

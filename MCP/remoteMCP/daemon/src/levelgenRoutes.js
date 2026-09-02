@@ -237,6 +237,15 @@ function activeFileName(mode) {
   return "ActiveGeneratedScenario.txt";
 }
 
+function resolveSafeFilePath(inputPath, defaultDir) {
+  if (!inputPath) return null;
+  const raw = String(inputPath).trim();
+  if (path.isAbsolute(raw)) {
+    return path.normalize(raw);
+  }
+  return path.resolve(defaultDir || PROJECT_ROOT, raw);
+}
+
 function localEvaluate(script, mode, expectedRoomName = null) {
   const errors = [];
   const warnings = [];
@@ -318,18 +327,30 @@ function buildSequentialTasks(userPrompt) {
   };
 }
 
-async function runOrchestrator(userPrompt, roomName) {
+async function runOrchestrator(userPrompt, roomName, componentConfigs = {}) {
+  let targetDetails = "";
+  if (componentConfigs?.levelgen?.action === "edit") {
+    targetDetails += `\n- LevelGen Component: EDIT existing file (${componentConfigs.levelgen.targetPath || "selected layout"}).`;
+  }
+  if (componentConfigs?.character?.action === "edit") {
+    targetDetails += `\n- Character Component: EDIT existing file (${componentConfigs.character.targetPath || "selected character"}).`;
+  }
+  if (componentConfigs?.scenario?.action === "edit") {
+    targetDetails += `\n- Scenario Component: EDIT existing file (${componentConfigs.scenario.targetPath || "selected scenario"}).`;
+  }
+
   const prompt = `
 You are the Manager/Orchestrator Agent for a Unity Cerebrum simulation creation pipeline.
 Your job is to read the user request and generate a single unified Master Simulation Plan.
 This plan must outline the overall goals, and divide the requirements into a list of clear, structured tasks for 3 specialized sub-agents:
-1. LevelGen Agent ("levelgen_task"): For generating the physical environment and layout (specifying Room, Location, child items matching available slots and hard constraints).
+1. LevelGen Agent ("levelgen_task"): For generating or modifying the physical environment and layout (specifying Room, Location, child items matching available slots and hard constraints).
    CRITICAL CONSTRAINT FOR RoomMedExam_base: RoomMedExam_base ONLY supports: Bed (1, 2, 3), Wall (1, 2, 3), BedsideHead (1, 2), BedsideMid (1, 2), BedsideFoot (1, 2), Cart (1, 2), and Screen (1, 2, 3, 4).
    NEVER ask to place a Nurse, Nurse Station, Doctor, Chair, Desk, Bin, Cabinet, or BedsideHeadLeft in RoomMedExam_base. Physical layouts do not contain actor characters; character placement and actions are handled purely in character/scenario scripts.
-2. Character Agent ("character_task"): For creating the character/patient setup script, setting patient name, age, vitals variables ($Temperature, $HR, $BP, $Respiration, $SpO2), character dialogue ($PatientSpeak), and styling appearance Do calls (e.g. SetHairColor, SetHairStyle, setblend, rigs) following the Cerebrum Scripting Guide.
+2. Character Agent ("character_task"): For creating or modifying the character/patient setup script, setting patient name, age, vitals variables ($Temperature, $HR, $BP, $Respiration, $SpO2), character dialogue ($PatientSpeak), and styling appearance Do calls (e.g. SetHairColor, SetHairStyle, setblend, rigs) following the Cerebrum Scripting Guide.
 3. Scenario Agent ("scenario_task"): For scripting clinical workflow logic (using Do statements for actions/dialogue, Prompt statements, Wait statements, conditionals, choices, and ending with Return).
 
 ${roomName ? `Target Room: ${roomName}` : ""}
+${targetDetails ? `COMPONENT SPECIFICATIONS:${targetDetails}` : ""}
 
 OVERALL USER REQUEST:
 ${userPrompt}
@@ -369,7 +390,10 @@ async function generateOneMode({
   imageBase64 = null,
   roomName = "RoomMedExam_base",
   strictConstraints = true,
-  additionalContext = ""
+  additionalContext = "",
+  action = "create",
+  targetPath = null,
+  existingContent = null
 }) {
   if (!userPrompt.trim()) {
     return {
@@ -380,7 +404,13 @@ async function generateOneMode({
     };
   }
 
-  if (mode === "levelgen" && strictConstraints) {
+  // If editing an existing file and existingContent wasn't passed directly, load it
+  let baseContent = existingContent;
+  if (action === "edit" && !baseContent && targetPath && exists(targetPath)) {
+    baseContent = readTextSafe(targetPath, MAX_FILE_CHARS);
+  }
+
+  if (mode === "levelgen" && strictConstraints && action !== "edit") {
     const promptProblems = guardLevelGenPrompt(userPrompt, roomName);
     if (promptProblems.length > 0) {
       return {
@@ -397,7 +427,7 @@ async function generateOneMode({
   const { context, files } = buildContext({
     prompt: userPrompt,
     mode,
-    selectedPaths,
+    selectedPaths: targetPath ? [...(selectedPaths || []), targetPath] : selectedPaths,
     topK
   });
 
@@ -408,12 +438,23 @@ You must generate files based on the reference project files below.
 ${context}
 `;
 
+  if (baseContent) {
+    prompt += `
+[EXISTING ${mode.toUpperCase()} FILE TO EDIT]
+--- START EXISTING CONTENT ---
+${baseContent}
+--- END EXISTING CONTENT ---
+INSTRUCTION FOR EDITING:
+Modify the above existing file to implement the user request. Keep all valid parts and structures that don't need changes.
+`;
+  }
+
   if (additionalContext) {
     prompt += `\n[ADDITIONAL PIPELINE CONTEXT]\n${additionalContext}\n`;
   }
 
   prompt += `
-TASK MODE: ${mode}
+TASK MODE: ${mode} (${action === "edit" ? "EDIT EXISTING FILE" : "CREATE NEW FILE"})
 ${mode === "levelgen" ? `SELECTED ROOM: ${roomName}` : ""}
 USER REQUEST:
 ${userPrompt}
@@ -457,14 +498,23 @@ If unsure, copy the structure from the most relevant corrected/manual examples.
   fs.mkdirSync(outputDir, { recursive: true });
 
   const safeName = safeFileName(fileName);
-  const savedPath = path.join(outputDir, `${safeName}.txt`);
-  const activePath = path.join(outputDir, activeFileName(mode));
+  let savedPath;
+  if (action === "edit" && targetPath) {
+    savedPath = resolveSafeFilePath(targetPath, outputDir);
+    fs.mkdirSync(path.dirname(savedPath), { recursive: true });
+    fs.writeFileSync(savedPath, script, "utf8");
+  } else {
+    savedPath = path.join(outputDir, `${safeName}.txt`);
+    fs.writeFileSync(savedPath, script, "utf8");
+  }
 
-  fs.writeFileSync(savedPath, script, "utf8");
+  const activePath = path.join(outputDir, activeFileName(mode));
   fs.writeFileSync(activePath, script, "utf8");
 
   return {
     blocked: false,
+    action: action === "edit" ? "edited" : "created",
+    targetPath: savedPath,
     script,
     savedPath,
     activePath,
@@ -562,6 +612,157 @@ export function installLevelGenRoutes(app) {
     }
   });
 
+  app.get("/api/component-files", (req, res) => {
+    try {
+      const allFiles = getAllKnowledgeFiles();
+      const levelgen = [];
+      const character = [];
+      const scenario = [];
+
+      for (const f of allFiles) {
+        const relLower = f.rel.toLowerCase();
+        const baseName = path.basename(f.path);
+        const item = {
+          name: baseName,
+          rel: f.rel,
+          path: f.path,
+          size: f.size
+        };
+
+        if (relLower.includes("levelgen") || baseName.toLowerCase().includes("room")) {
+          levelgen.push(item);
+        } else if (relLower.includes("patient") || relLower.includes("character")) {
+          character.push(item);
+        } else if (relLower.includes("scenario")) {
+          scenario.push(item);
+        }
+      }
+
+      // Also ensure active files are listed if they exist
+      const activeLg = path.join(getOutputDir("levelgen"), activeFileName("mode"));
+      if (exists(activeLg)) {
+        levelgen.unshift({ name: "ActiveGeneratedLevelGen.txt", rel: "ActiveGeneratedLevelGen.txt", path: activeLg, size: fs.statSync(activeLg).size });
+      }
+
+      res.json({
+        ok: true,
+        levelgen: [...new Map(levelgen.map((i) => [i.path, i])).values()],
+        character: [...new Map(character.map((i) => [i.path, i])).values()],
+        scenario: [...new Map(scenario.map((i) => [i.path, i])).values()]
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to list component files", details: err.message });
+    }
+  });
+
+  app.post("/api/save-file", (req, res) => {
+    try {
+      const { filePath, content, mode, fileName } = req.body;
+      if (typeof content !== "string") {
+        return res.status(400).json({ error: "content string is required." });
+      }
+
+      const outputDir = getOutputDir(mode || "scenario");
+      let targetPath;
+
+      if (filePath) {
+        targetPath = resolveSafeFilePath(filePath, outputDir);
+      } else {
+        const safeName = safeFileName(fileName || (mode === "levelgen" ? "SavedLevel" : mode === "character" ? "SavedCharacter" : "SavedScenario"));
+        targetPath = path.join(outputDir, `${safeName}.txt`);
+      }
+
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.writeFileSync(targetPath, content, "utf8");
+
+      if (mode) {
+        const activePath = path.join(outputDir, activeFileName(mode));
+        fs.writeFileSync(activePath, content, "utf8");
+      }
+
+      res.json({
+        ok: true,
+        savedPath: targetPath,
+        bytes: Buffer.byteLength(content, "utf8"),
+        mode
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to save file.", details: err.message });
+    }
+  });
+
+  app.post("/api/edit-component", async (req, res) => {
+    try {
+      const { mode = "scenario", prompt = "", currentContent = "", targetPath = "", roomName = "RoomMedExam_base" } = req.body;
+      if (!prompt.trim()) {
+        return res.status(400).json({ error: "Edit prompt is required." });
+      }
+
+      let existingText = currentContent;
+      if (!existingText && targetPath && exists(targetPath)) {
+        existingText = readTextSafe(targetPath, MAX_FILE_CHARS);
+      }
+
+      const { context } = buildContext({
+        prompt,
+        mode,
+        selectedPaths: targetPath ? [targetPath] : [],
+        topK: 6
+      });
+
+      const editPrompt = `
+You are connected to a local Unity/Cerebrum project as the specialized ${mode.toUpperCase()} component agent.
+Your task is to EDIT and REFINE the existing ${mode} script based on the user's instructions.
+
+${context}
+
+EXISTING SCRIPT:
+--- BEGIN CURRENT FILE ---
+${existingText}
+--- END CURRENT FILE ---
+
+USER EDIT INSTRUCTIONS:
+${prompt}
+
+RULES:
+${outputRulesForMode(mode, roomName)}
+Apply only the requested edits or additions while maintaining correct syntax, variables, and structure.
+Do not explain.
+Do not use markdown code fences.
+Output only the complete edited raw script.
+`;
+
+      const data = await callOllama({
+        model: OLLAMA_MODEL,
+        prompt: editPrompt,
+        stream: false
+      });
+
+      const updatedScript = cleanGenerated(data.response || "");
+      const evaluation = localEvaluate(updatedScript, mode, mode === "levelgen" ? roomName : null);
+
+      let savedPath = null;
+      if (targetPath) {
+        savedPath = resolveSafeFilePath(targetPath, getOutputDir(mode));
+        fs.mkdirSync(path.dirname(savedPath), { recursive: true });
+        fs.writeFileSync(savedPath, updatedScript, "utf8");
+      }
+
+      res.json({
+        ok: true,
+        mode,
+        script: updatedScript,
+        savedPath,
+        localEvaluation: evaluation
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Component edit error.", details: err.message });
+    }
+  });
+
   app.post("/generate-sequential", upload.single("image"), async (req, res) => {
     try {
       const userPrompt = req.body.prompt || "";
@@ -572,16 +773,28 @@ export function installLevelGenRoutes(app) {
       const topK = Number(req.body.topK || DEFAULT_TOP_K);
       const imageBase64 = req.file ? req.file.buffer.toString("base64") : null;
 
+      let componentConfigs = {};
+      if (req.body.componentConfigs) {
+        try {
+          componentConfigs = typeof req.body.componentConfigs === "string"
+            ? JSON.parse(req.body.componentConfigs)
+            : req.body.componentConfigs;
+        } catch (e) {
+          console.warn("Could not parse componentConfigs", e);
+        }
+      }
+
       if (!userPrompt.trim()) {
         return res.status(400).json({ error: "Prompt is required." });
       }
 
       console.log(`🤖 Orchestrator planning started for prompt: "${userPrompt}"`);
-      const plan = await runOrchestrator(userPrompt, roomName);
+      const plan = await runOrchestrator(userPrompt, roomName, componentConfigs);
       console.log(`📋 Orchestrator plan generated:`, JSON.stringify(plan, null, 2));
 
       // Guard LevelGen sub-prompt specifically using the sub-task description
-      if (strictConstraints) {
+      const lgConfig = componentConfigs.levelgen || {};
+      if (strictConstraints && lgConfig.action !== "edit") {
         const levelGenSubPrompt = plan.levelgen_task || plan.levelgen || userPrompt;
         const promptProblems = guardLevelGenPrompt(levelGenSubPrompt, roomName);
         if (promptProblems.length > 0) {
@@ -599,18 +812,22 @@ export function installLevelGenRoutes(app) {
 
       const results = {};
 
-      // 1. Run LevelGen Agent (disable prompt-guard validation within generateOneMode, as we guarded it above)
+      // 1. Run LevelGen Agent
       console.log("🛠️ Running LevelGen Agent...");
+      const lgFileName = lgConfig.fileName ? safeFileName(lgConfig.fileName) : `${baseName}_LevelGen`;
       results.levelgen = await generateOneMode({
         mode: "levelgen",
         userPrompt: `You are the LevelGen Agent. Your task is defined in the Master Simulation Plan under "levelgen_task":\n"${plan.levelgen_task || plan.levelgen || userPrompt}"\n\nReference the Master Plan context:\nGoal: ${plan.goal}`,
-        fileName: `${baseName}_LevelGen`,
+        fileName: lgFileName,
         selectedPaths,
         topK,
         imageBase64,
         roomName,
         strictConstraints: false,
-        additionalContext: `MASTER SIMULATION PLAN:\n${JSON.stringify(plan, null, 2)}`
+        additionalContext: `MASTER SIMULATION PLAN:\n${JSON.stringify(plan, null, 2)}`,
+        action: lgConfig.action || "create",
+        targetPath: lgConfig.targetPath || null,
+        existingContent: lgConfig.existingContent || null
       });
 
       if (results.levelgen.blocked) {
@@ -624,6 +841,8 @@ export function installLevelGenRoutes(app) {
 
       // 2. Run Character Agent
       console.log("👤 Running Character Agent...");
+      const chConfig = componentConfigs.character || {};
+      const chFileName = chConfig.fileName ? safeFileName(chConfig.fileName) : `${baseName}_Character`;
       let characterContext = `MASTER SIMULATION PLAN:\n${JSON.stringify(plan, null, 2)}`;
       if (results.levelgen?.script) {
         characterContext += `\n\nGENERATED LEVELGEN LAYOUT (YOU MUST COORDINATE AND PLACE PATIENT IN A SUPPORTED BED/SLOT DETECTED HERE):\n${results.levelgen.script}`;
@@ -632,13 +851,16 @@ export function installLevelGenRoutes(app) {
       results.character = await generateOneMode({
         mode: "character",
         userPrompt: `You are the Character Agent. Your task is defined in the Master Simulation Plan under "character_task":\n"${plan.character_task || plan.character || userPrompt}"\n\nReference the Master Plan context:\nGoal: ${plan.goal}`,
-        fileName: `${baseName}_Character`,
+        fileName: chFileName,
         selectedPaths,
         topK,
         imageBase64: null,
         roomName,
         strictConstraints: false,
-        additionalContext: characterContext
+        additionalContext: characterContext,
+        action: chConfig.action || "create",
+        targetPath: chConfig.targetPath || null,
+        existingContent: chConfig.existingContent || null
       });
 
       if (results.character.blocked) {
@@ -652,6 +874,8 @@ export function installLevelGenRoutes(app) {
 
       // 3. Run Scenario Agent with context from LevelGen and Character outputs
       console.log("🎬 Running Scenario Agent...");
+      const scConfig = componentConfigs.scenario || {};
+      const scFileName = scConfig.fileName ? safeFileName(scConfig.fileName) : `${baseName}_Scenario`;
       let scenarioContext = `MASTER SIMULATION PLAN:\n${JSON.stringify(plan, null, 2)}`;
       if (results.levelgen?.script) {
         scenarioContext += `\n\nGENERATED LEVELGEN LAYOUT (YOU MUST MATCH THIS EXACT LAYOUT AND SLOTS/PREFABS):\n${results.levelgen.script}`;
@@ -663,13 +887,16 @@ export function installLevelGenRoutes(app) {
       results.scenario = await generateOneMode({
         mode: "scenario",
         userPrompt: `You are the Scenario Agent. Your task is defined in the Master Simulation Plan under "scenario_task":\n"${plan.scenario_task || plan.scenario || userPrompt}"\n\nReference the Master Plan context:\nGoal: ${plan.goal}`,
-        fileName: `${baseName}_Scenario`,
+        fileName: scFileName,
         selectedPaths,
         topK,
         imageBase64: null,
         roomName,
         strictConstraints: false,
-        additionalContext: scenarioContext
+        additionalContext: scenarioContext,
+        action: scConfig.action || "create",
+        targetPath: scConfig.targetPath || null,
+        existingContent: scConfig.existingContent || null
       });
 
       if (results.scenario.blocked) {
