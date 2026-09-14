@@ -1,0 +1,50 @@
+#########################################
+# PATIENTNEWS1 INFO INIT - Authentic Cerebrum Patient Definition
+# Source: Cerebrum Scripting Guide V1.2.0
+#########################################
+
+$PatientName = 'Lim Ah Nee'
+$isEWS = 'true'
+$PatientIC = 'S1112223A'
+$BloodType = 'B-'
+$AgeInYears = 73
+$PatientModel = 'uAvatar'
+$PatientDiag = 'Tear of the distal supraspinatus tendon'
+$PatientGender = 'Male'
+$PatientSummary = 'Mr ' + $PatientName + ', admitted electively for left shoulder arthroscopic cuff repair. He has past medical history of diabetes mellitus. Post op instruction: hourly parameter for the next 4 hours.'
+$PatientType = 'News1'
+
+### Set patient vitals
+$Temperature = 36.5
+$HR = 70
+$BP = '150/71'
+$BPSys = 150
+$Respiration = 20
+$SpO2 = 100
+$PainScore = 'Pain Score: 0/10'
+$AbnormalResponse = 'Patient is showing the signs and symptoms of stroke.'
+$PatientSpeak = 'Hi! I am generally good, however I feel a funny feeling on my face and I have trouble speaking properly. Is this normal post operation?'
+
+#########################################
+# SETUP TYPE OF MODEL & LOCATION
+#########################################
+$PatientObjName = 'PatientNewsA_B' + BedNumber
+Create $PatientModel $PatientObjName
+$PatientBedLoc = $Patient
+$PatientObjName align $PatientBedLoc 0
+$Patient = PatientObjName
+
+$RigType = 'uAvatar'
+Do 'Rigs/RigExtras.txt'
+Do 'NEWS_Nurse/SetupPatient.txt'
+
+### Setup how patient looks
+$HeadAmount = 80.0
+$WeightAmount = 20.0
+Do 'NEWS_Nurse/PatientCreations/Age/75.txt'
+Do 'NEWS_Nurse/PatientCreations/Head/Head3.txt'
+Do 'NEWS_Nurse/PatientCreations/Height/Short.txt'
+Do 'NEWS_Nurse/PatientCreations/Weight/Weight.txt'
+Do 'NEWS_Nurse/PatientCreations/Expressions/Frown.txt'
+
+Return

@@ -87,23 +87,32 @@ function getAllKnowledgeFiles() {
   files.push(...walkFiles(LOCAL_SCENARIO_DIR));
   files.push(...walkFiles(LOCAL_PATIENT_DIR));
 
+  const candidateExtraFiles = [
+    path.join(DAEMON_ROOT, "..", "..", "MainLoop.txt"),
+    path.join(PROJECT_ROOT, "MainLoop.txt"),
+    path.join(DAEMON_ROOT, "Scenario", "MainLoop.txt"),
+    path.join(DAEMON_ROOT, "..", "..", "CerebrumScriptingGuide_1.2.0.txt"),
+    path.join(PROJECT_ROOT, "CerebrumScriptingGuide_1.2.0.txt")
+  ];
+  for (const p of candidateExtraFiles) {
+    if (exists(p)) files.push(p);
+  }
+
   return [...new Set(files)]
     .map((filePath) => {
       const text = readTextSafe(filePath);
       const rel = projectRelative(filePath);
       const relLower = rel.toLowerCase();
 
-      const priority = filePath.includes("corrected-levelgen-examples")
-        ? 1000
-        : filePath.includes("manual-levelgen-examples")
-          ? 800
-          : relLower.includes("levelgen")
-            ? 300
-            : relLower.includes("scenario")
-              ? 200
-              : relLower.includes("patient")
-                ? 200
-                : 100;
+      let priority = 100;
+      if (filePath.includes("corrected-levelgen-examples")) priority = 1000;
+      else if (filePath.includes("manual-levelgen-examples")) priority = 800;
+      else if (relLower.includes("mainloop")) priority = 1500;
+      else if (relLower.includes("patientnews")) priority = 1500;
+      else if (relLower.includes("scriptingguide")) priority = 900;
+      else if (relLower.includes("levelgen")) priority = 300;
+      else if (relLower.includes("scenario")) priority = 300;
+      else if (relLower.includes("patient")) priority = 300;
 
       return {
         path: filePath,
@@ -139,12 +148,18 @@ function scoreFile(file, prompt, mode) {
   if (mode === "levelgen" && rel.includes("corrected")) score += 1000;
   if (mode === "levelgen" && rel.includes("manual-levelgen")) score += 500;
 
-  if (mode === "scenario" && rel.includes("scenario")) score += 500;
-  if (mode === "scenario" && file.text.includes("Do '")) score += 250;
+  if (mode === "scenario") {
+    if (rel.includes("mainloop")) score += 2000; // MainLoop is the gold standard
+    if (rel.includes("scenario")) score += 500;
+    if (file.text.includes("Label '") || file.text.includes("pressed")) score += 400;
+    if (file.text.includes("Do '")) score += 250;
+  }
 
-  if (mode === "character" && (rel.includes("patient") || rel.includes("appearance"))) score += 700;
-  if (mode === "character" && rel.includes("createpatient")) score += 400;
-  if (mode === "character" && rel.includes("initializepatientappearance")) score += 500;
+  if (mode === "character") {
+    if (rel.includes("patientnews")) score += 2000; // PatientNews1 is the gold standard
+    if (rel.includes("patient") || rel.includes("character") || rel.includes("appearance")) score += 700;
+    if (file.text.includes("$patientname") || file.text.includes("patientcreations")) score += 600;
+  }
 
   return score;
 }
@@ -152,7 +167,9 @@ function scoreFile(file, prompt, mode) {
 function buildContext({ prompt, mode, selectedPaths = [], topK = DEFAULT_TOP_K }) {
   const memoryPath = mode === "scenario"
     ? path.join(path.dirname(MEMORY_PATH), "Workspace Memory Scenario.txt")
-    : MEMORY_PATH;
+    : mode === "character"
+      ? path.join(path.dirname(MEMORY_PATH), "Workspace Memory Character.txt")
+      : MEMORY_PATH;
   const memory = exists(memoryPath) ? readTextSafe(memoryPath, MAX_MEMORY_CHARS) : "";
   const all = getAllKnowledgeFiles();
 
@@ -250,30 +267,91 @@ function localEvaluate(script, mode, expectedRoomName = null) {
   const errors = [];
   const warnings = [];
 
-  const lines = String(script || "")
+  const raw = String(script || "").trim();
+  if (!raw) errors.push("Generated file is empty.");
+  if (raw.includes("```")) errors.push("Generated file still contains markdown code fences.");
+
+  const lines = raw
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
 
-  if (!String(script || "").trim()) errors.push("Generated file is empty.");
-  if (String(script || "").includes("```")) errors.push("Generated file still contains markdown code fences.");
-
   if (mode === "scenario") {
-    const validStarts = ["Do '", "Prompt '", "Wait ", "Return", "Label '", "Goto '", "If ", "Else", "Endif", "$", "//", "#"];
-
-    for (const line of lines) {
-      if (!validStarts.some((prefix) => line.startsWith(prefix))) {
-        warnings.push(`Unusual scenario line: ${line}`);
+    // Check multi-line If syntax (Cerebrum requirement)
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (/^if\s+.+\s+then$/i.test(l)) {
+        warnings.push(`Single-line If/Then detected at line ${i + 1}: "${l}". Cerebrum requires condition and Then on separate lines.`);
+      }
+      if (/^if$/i.test(l)) {
+        if (i + 2 >= lines.length || !/^then$/i.test(lines[i + 2])) {
+          warnings.push(`Malformed If statement at line ${i + 1}. Expected: If \\n [condition] \\n Then.`);
+        }
+      }
+      if (/\bpressed\b/i.test(l) && !l.startsWith("#")) {
+        const resetObj = l.replace(/\bpressed\b/i, "").trim().split(/\s+/)[0];
+        let hasReset = false;
+        for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+          if (lines[j].includes("reset")) { hasReset = true; break; }
+        }
+        if (!hasReset && resetObj) {
+          warnings.push(`Object click check "${l}" may be missing "${resetObj} reset", which can cause stuck button loops.`);
+        }
       }
     }
 
-    if (!lines.some((l) => l.startsWith("Do '"))) warnings.push("No Do statements found.");
-    if (lines.length > 0 && !lines[lines.length - 1]?.startsWith("Return")) warnings.push("Script does not end with Return.");
+    // Check If / Endif balance
+    const ifCount = lines.filter((l) => /^if(\s|$)/i.test(l)).length;
+    const endifCount = lines.filter((l) => /^endif$/i.test(l)).length;
+    if (ifCount !== endifCount) {
+      errors.push(`Mismatched conditionals: found ${ifCount} If statements but ${endifCount} Endif statements.`);
+    }
+
+    // Check Label and Goto pairing
+    const labels = new Set(
+      lines
+        .filter((l) => /^label\s+['"][^'"]+['"]/i.test(l))
+        .map((l) => l.replace(/^label\s+['"]([^'"]+)['"].*/i, "$1"))
+    );
+    for (const l of lines) {
+      if (/^goto\s+['"][^'"]+['"]/i.test(l)) {
+        const target = l.replace(/^goto\s+['"]([^'"]+)['"].*/i, "$1");
+        if (!labels.has(target)) {
+          warnings.push(`Goto references undefined label "${target}".`);
+        }
+      }
+    }
+
+    // Check loop throttle
+    if (lines.some((l) => /^goto\s+/i.test(l))) {
+      if (!lines.some((l) => /^wait\s+/i.test(l))) {
+        warnings.push("Scenario contains a Goto loop but no Wait statements to throttle loop execution.");
+      }
+    }
+
+    // Check Return
+    if (lines.length > 0 && !lines.some((l) => /^return(\s|$)/i.test(l))) {
+      warnings.push("Scenario script does not contain a Return statement.");
+    }
   }
 
   if (mode === "character") {
-    if (!lines.some((l) => l.includes("Patient") || l.includes("$Patient"))) {
-      warnings.push("Character output does not appear to reference a patient.");
+    const textLower = raw.toLowerCase();
+    if (!textLower.includes("$patientname")) warnings.push("Missing $PatientName declaration.");
+    if (!textLower.includes("$temperature") && !textLower.includes("$hr")) {
+      warnings.push("Missing clinical vitals ($Temperature, $HR, $BP, etc.).");
+    }
+    if (!textLower.includes("create $patientmodel") && !textLower.includes("create uavatar")) {
+      warnings.push("Missing patient avatar creation (Create $PatientModel $PatientObjName).");
+    }
+    if (!textLower.includes("align")) {
+      warnings.push("Missing patient bed alignment ($PatientObjName align $PatientBedLoc 0).");
+    }
+    if (!textLower.includes("patientcreations")) {
+      warnings.push("Missing modular styling Do scripts (e.g., Do 'NEWS_Nurse/PatientCreations/Age/...').");
+    }
+    if (!lines.some((l) => /^return(\s|$)/i.test(l))) {
+      warnings.push("Character setup script does not end with Return.");
     }
   }
 
@@ -311,10 +389,107 @@ function outputRulesForMode(mode, roomName) {
   }
 
   if (mode === "character") {
-    return "Generate a Cerebrum scenario script (.txt) for patient/character setup and styling. Output only raw script lines following the Cerebrum Scripting Guide. Initialize patient variables (e.g., $PatientName = '...', $PatientAge = 87, $Temperature = 36.5, $HR = 70, $BP = '150/71', $Respiration = 20, $SpO2 = 100, $PatientSpeak = '...') and call styling/appearance Do scripts (e.g., Do 'NEWS_Nurse/PatientCreations/Age/75' or Do $Patient SetHairColor Dark) referencing the bed location and patient reference variables. Do not generate LevelGen room layout rows or unrelated scenario clinical actions.";
+    return `Generate an authentic Cerebrum character/patient setup scenario script (.txt) following the Cerebrum Scripting Guide and PatientNews1.txt.
+Output only raw script lines.
+MANDATORY 3-PHASE STRUCTURE:
+Phase 1 - Patient Identity & Clinical Vitals:
+$PatientName = '...'
+$isEWS = 'true'
+$PatientIC = '...'
+$BloodType = '...'
+$AgeInYears = ...
+$PatientModel = 'uAvatar'
+$PatientDiag = '...'
+$PatientGender = 'Male' or 'Female'
+$PatientSummary = '...'
+$PatientType = 'News1'
+### Set patient vitals
+$Temperature = 38.6
+$HR = 88
+$BP = '138/84'
+$BPSys = 138
+$Respiration = 22
+$SpO2 = 94
+$PainScore = 'Pain Score: ...'
+$AbnormalResponse = '...'
+$PatientSpeak = '...'
+Phase 2 - Model Instantiation & Bed Alignment:
+$PatientObjName = 'PatientNewsA_B' + BedNumber
+Create $PatientModel $PatientObjName
+$PatientBedLoc = $Patient
+$PatientObjName align $PatientBedLoc 0
+$Patient = PatientObjName
+$RigType = 'uAvatar'
+Do 'Rigs/RigExtras.txt'
+Do 'NEWS_Nurse/SetupPatient.txt'
+Phase 3 - Appearance & Trait Customization:
+$HeadAmount = 80.0
+$WeightAmount = 20.0
+Do 'NEWS_Nurse/PatientCreations/Age/<age>.txt'
+Do 'NEWS_Nurse/PatientCreations/Head/<head>.txt'
+Do 'NEWS_Nurse/PatientCreations/Height/<height>.txt'
+Do 'NEWS_Nurse/PatientCreations/Weight/<weight>.txt'
+Do 'NEWS_Nurse/PatientCreations/Expressions/<expression>.txt'
+Return
+Do NOT generate LevelGen room layout rows or scenario interactive loops in the character script.`;
   }
 
-  return "Generate a Cerebrum scenario .txt file. Output only raw script lines. Use Do statements for real actions and Prompt only for visible dialogue. Do not generate LevelGen rows or character appearance configuration unless the scenario syntax requires a patient reference.";
+  return `Generate an authentic Cerebrum scenario (.txt) script strictly following MainLoop.txt and the Cerebrum Scripting Guide.
+Output only raw script lines.
+MANDATORY STRUCTURE:
+1. Setup Canvases & Outlines:
+   JoystickCanvas on
+   WipeCanvas off
+   SyringeCanvas off
+   IVCanvas off
+   $Patient outline.on
+   $Vitalsmonitor outline.on
+   $KidneyDish outline.on
+   $KidneyDish reset
+2. Player Alignment:
+   If
+       $Patient isCurrent
+   Then
+       Player align $PlayerStart 0.5
+   Endif
+3. Main Interaction Loop (AS SEEN IN MAINLOOP.TXT):
+   Label 'MainLoop'
+       # Interactive click checks (Condition on own line, Then on own line, MUST reset object!)
+       If
+           $Patient pressed
+       Then
+           $Patient reset
+           $Patient outline.off
+           Do 'NEWS_Nurse/EngagePatient.txt'
+           $Patient outline.on
+       Endif
+
+       If
+           $HandScrub pressed
+       Then
+           $HandScrub reset
+           Prompt 'Hand Hygiene'
+           Do 'Actions/HandWash/StandardHandHygiene.txt'
+           Wait 1
+           Prompt ''
+           Player align $PlayerStart 0.5
+       Endif
+
+       If
+           $Vitalsmonitor pressed
+       Then
+           $Vitalsmonitor reset
+           Do 'Intervention/AssessECG.txt'
+       Endif
+
+       Wait .2
+   Goto 'MainLoop'
+4. Prompts & Dialogue:
+   Prompt 'Message text'
+   Wait 1.5
+   Prompt ''
+5. End with Return.
+CRITICAL: Every 'If' MUST have its conditional expression on the line following 'If', followed by 'Then' on its own line, the block body, and 'Endif'. Any clicked object check ($Object pressed) MUST immediately be followed by $Object reset.`;
 }
 
 function buildSequentialTasks(userPrompt) {
@@ -322,8 +497,8 @@ function buildSequentialTasks(userPrompt) {
     title: "Sequential Simulation Plan",
     goal: "Fulfill the user request sequentially",
     levelgen_task: `Generate the physical room/environment setup only. Do not write scenario behavior or detailed character appearance. Overall request:\n${userPrompt}`,
-    character_task: `Generate the patient/character setup and appearance customization only. Do not generate LevelGen rows or scenario behavior. Overall request:\n${userPrompt}`,
-    scenario_task: `Generate scenario clinical flow and logic only. Do not generate LevelGen layout or character appearance. Overall request:\n${userPrompt}`
+    character_task: `Generate the authentic patient setup and appearance customization following Cerebrum PatientNews1.txt (patient variables, vitals, model creation/bed alignment, and PatientCreations Do calls). Overall request:\n${userPrompt}`,
+    scenario_task: `Generate the scenario clinical flow and interactive loop following Cerebrum MainLoop.txt (canvases, outlines, multi-line If/Then/Endif, object click resets, throttled MainLoop, and Return). Overall request:\n${userPrompt}`
   };
 }
 
@@ -346,8 +521,8 @@ This plan must outline the overall goals, and divide the requirements into a lis
 1. LevelGen Agent ("levelgen_task"): For generating or modifying the physical environment and layout (specifying Room, Location, child items matching available slots and hard constraints).
    CRITICAL CONSTRAINT FOR RoomMedExam_base: RoomMedExam_base ONLY supports: Bed (1, 2, 3), Wall (1, 2, 3), BedsideHead (1, 2), BedsideMid (1, 2), BedsideFoot (1, 2), Cart (1, 2), and Screen (1, 2, 3, 4).
    NEVER ask to place a Nurse, Nurse Station, Doctor, Chair, Desk, Bin, Cabinet, or BedsideHeadLeft in RoomMedExam_base. Physical layouts do not contain actor characters; character placement and actions are handled purely in character/scenario scripts.
-2. Character Agent ("character_task"): For creating or modifying the character/patient setup script, setting patient name, age, vitals variables ($Temperature, $HR, $BP, $Respiration, $SpO2), character dialogue ($PatientSpeak), and styling appearance Do calls (e.g. SetHairColor, SetHairStyle, setblend, rigs) following the Cerebrum Scripting Guide.
-3. Scenario Agent ("scenario_task"): For scripting clinical workflow logic (using Do statements for actions/dialogue, Prompt statements, Wait statements, conditionals, choices, and ending with Return).
+2. Character Agent ("character_task"): For creating or modifying the character/patient setup script following the Cerebrum Scripting Guide and PatientNews1.txt. Must specify 3 phases: Phase 1 (Patient clinical variables $PatientName, $PatientAge, and vitals $Temperature, $HR, $BP, $Respiration, $SpO2, $PatientSpeak), Phase 2 (Model creation and bed alignment: Create $PatientModel $PatientObjName, align to bed), and Phase 3 (Appearance blendshape Do calls like Age, Head, Height, Weight, Expressions).
+3. Scenario Agent ("scenario_task"): For scripting clinical workflow logic following Cerebrum MainLoop.txt (Canvases on/off, object outlines, player alignment, multi-line If/Then/Endif, interactive object click handling with $Object reset, throttled event loop Label 'MainLoop' ... Wait .2 ... Goto 'MainLoop', and ending with Return).
 
 ${roomName ? `Target Room: ${roomName}` : ""}
 ${targetDetails ? `COMPONENT SPECIFICATIONS:${targetDetails}` : ""}
@@ -763,9 +938,9 @@ Output only the complete edited raw script.
     }
   });
 
-  app.post("/generate-sequential", upload.single("image"), async (req, res) => {
+  app.post(["/generate-sequential", "/api/orchestrate/generate-sequential"], upload.single("image"), async (req, res) => {
     try {
-      const userPrompt = req.body.prompt || "";
+      const userPrompt = req.body.prompt || req.body.userPrompt || "";
       const roomName = req.body.roomName || "RoomMedExam_base";
       const strictConstraints = String(req.body.strictConstraints ?? "true") !== "false";
       const baseName = safeFileName(req.body.fileName || "SequentialGeneration");
@@ -788,9 +963,13 @@ Output only the complete edited raw script.
         return res.status(400).json({ error: "Prompt is required." });
       }
 
+      const tPipelineStart = performance.now();
+
       console.log(`🤖 Orchestrator planning started for prompt: "${userPrompt}"`);
+      const tPlanStart = performance.now();
       const plan = await runOrchestrator(userPrompt, roomName, componentConfigs);
-      console.log(`📋 Orchestrator plan generated:`, JSON.stringify(plan, null, 2));
+      const planningMs = performance.now() - tPlanStart;
+      console.log(`📋 Orchestrator plan generated in ${planningMs.toFixed(1)}ms:`, JSON.stringify(plan, null, 2));
 
       // Guard LevelGen sub-prompt specifically using the sub-task description
       const lgConfig = componentConfigs.levelgen || {};
@@ -814,6 +993,7 @@ Output only the complete edited raw script.
 
       // 1. Run LevelGen Agent
       console.log("🛠️ Running LevelGen Agent...");
+      const tLgStart = performance.now();
       const lgFileName = lgConfig.fileName ? safeFileName(lgConfig.fileName) : `${baseName}_LevelGen`;
       results.levelgen = await generateOneMode({
         mode: "levelgen",
@@ -829,6 +1009,7 @@ Output only the complete edited raw script.
         targetPath: lgConfig.targetPath || null,
         existingContent: lgConfig.existingContent || null
       });
+      const levelgenMs = performance.now() - tLgStart;
 
       if (results.levelgen.blocked) {
         return res.status(results.levelgen.status || 400).json({
@@ -841,6 +1022,7 @@ Output only the complete edited raw script.
 
       // 2. Run Character Agent
       console.log("👤 Running Character Agent...");
+      const tChStart = performance.now();
       const chConfig = componentConfigs.character || {};
       const chFileName = chConfig.fileName ? safeFileName(chConfig.fileName) : `${baseName}_Character`;
       let characterContext = `MASTER SIMULATION PLAN:\n${JSON.stringify(plan, null, 2)}`;
@@ -862,6 +1044,7 @@ Output only the complete edited raw script.
         targetPath: chConfig.targetPath || null,
         existingContent: chConfig.existingContent || null
       });
+      const characterMs = performance.now() - tChStart;
 
       if (results.character.blocked) {
         return res.status(results.character.status || 400).json({
@@ -874,6 +1057,7 @@ Output only the complete edited raw script.
 
       // 3. Run Scenario Agent with context from LevelGen and Character outputs
       console.log("🎬 Running Scenario Agent...");
+      const tScStart = performance.now();
       const scConfig = componentConfigs.scenario || {};
       const scFileName = scConfig.fileName ? safeFileName(scConfig.fileName) : `${baseName}_Scenario`;
       let scenarioContext = `MASTER SIMULATION PLAN:\n${JSON.stringify(plan, null, 2)}`;
@@ -898,6 +1082,7 @@ Output only the complete edited raw script.
         targetPath: scConfig.targetPath || null,
         existingContent: scConfig.existingContent || null
       });
+      const scenarioMs = performance.now() - tScStart;
 
       if (results.scenario.blocked) {
         return res.status(results.scenario.status || 400).json({
@@ -908,11 +1093,20 @@ Output only the complete edited raw script.
         });
       }
 
+      const totalPipelineMs = performance.now() - tPipelineStart;
+
       res.json({
         ok: true,
         orchestratorPlan: plan,
         order: ["levelgen", "character", "scenario"],
-        results
+        results,
+        timings: {
+          planningMs,
+          levelgenMs,
+          characterMs,
+          scenarioMs,
+          totalPipelineMs
+        }
       });
     } catch (err) {
       console.error(err);
@@ -940,7 +1134,7 @@ Output only the complete edited raw script.
       const local = localEvaluate(script, mode, mode === "levelgen" ? roomName : null);
 
       const evalPrompt = `
-You are an expert system that evaluates Unity LevelGen scripts for correctness.
+You are an expert system that evaluates Unity Cerebrum ${mode.toUpperCase()} scripts for correctness.
 
 [CONTEXT PROJECT EXAMPLES]
 ${context}
@@ -964,19 +1158,21 @@ You MUST return a JSON object with the following schema:
 Do not return any other text, explanations, or keys. Only return the JSON object.
 `;
 
-      const data = await callOllama({
-        model: OLLAMA_MODEL,
-        prompt: evalPrompt,
-        stream: false,
-        format: "json"
-      });
-
-      let modelEvaluation;
-
+      let modelEvaluation = null;
       try {
-        modelEvaluation = JSON.parse(data.response || "{}");
-      } catch {
-        modelEvaluation = { raw: data.response };
+        const data = await callOllama({
+          model: OLLAMA_MODEL,
+          prompt: evalPrompt,
+          stream: false,
+          format: "json"
+        });
+        try {
+          modelEvaluation = JSON.parse(data.response || "{}");
+        } catch {
+          modelEvaluation = { raw: data.response };
+        }
+      } catch (ollamaErr) {
+        modelEvaluation = { note: "Model evaluation skipped or offline", error: ollamaErr.message };
       }
 
       res.json({

@@ -1,0 +1,456 @@
+
+#Setup canvases and clickable items
+#/PatientCanvas off
+JoystickCanvas on
+$InfusionStand off
+$Patient outline.on
+$Vitalsmonitor outline.on
+#Prompt 'Playerstart = ' + PlayerStart
+#Wait .51  #is this wait needed?
+
+WipeCanvas off
+SyringeCanvas off
+IVCanvas off
+DripCanvas off
+
+$Stage2Sum = false
+
+$Soap outline.on
+$Gloves outline.on
+$KidneyDish outline.on
+$KidneyDish reset
+
+$BloodBag outline.on
+$Set outline.on
+$PressureCuff outline.on
+$Vitalsmonitor on
+#$Patient outline.off
+#$Vitalsmonitor outline.off
+
+$Wipe1 outline.on
+$Wipe1 reset
+$Syringe outline.on
+$Phone outline.on
+$Phone clickable true
+
+
+#Move player to bed
+
+If
+	$Patient isCurrent
+Then
+	Player align $PlayerStart
+Endif
+
+#Show summary message
+Do 'SummaryCheck.txt'
+
+$PC_Info = '/PatientCanvas/PatInfo'
+$InterventionsNumber = 'PatInfoCanvas/Background/InterventionsNumber'
+#		Prompt 'N1:Loop : ' + PatientName
+
+### TOOL BUTTON VARIABLES ###
+
+#$NEWSAggregrate = 'ButtonListMask/ButtonListContent/NEWSButton'
+$AssessParameters = 'ButtonListMask/ButtonListContent/AssessParametersButton'
+$PainCard = 'ButtonListMask/ButtonListContent/PainCardButton'
+$GlascowScale = 'ButtonListMask/ButtonListContent/GlascowScaleButton'
+$PupilReactionButton = 'ButtonListMask/ButtonListContent/PupilReactionButton'
+$PhysicalExamination = 'ButtonListMask/ButtonListContent/PhysicalExaminationButton'
+$LimbMovement = 'ButtonListMask/ButtonListContent/LimbMovementButton'
+#$PhysicalState = 'ButtonListMask/ButtonListContent/PhysicalStateButton'
+$BloodGlucose = 'ButtonListMask/ButtonListContent/BloodGlucoseButton'
+$ECG = 'ButtonListMask/ButtonListContent/ECGButton'
+
+$ApplyPressure = 'ButtonListMask/ButtonListContent/ApplyPressureButton'
+$InformMedicalTeam = 'ButtonListMask/ButtonListContent/InformMedicalTeamButton'
+$IVCannula = 'ButtonListMask/ButtonListContent/IVCannulaButton'
+$IVDrip = 'ButtonListMask/ButtonListContent/IVDripButton'
+$GlucoseSachet = 'ButtonListMask/ButtonListContent/OralGlucoseSachetButton'
+$OxygenTherapy = 'ButtonListMask/ButtonListContent/OxygenTherapyButton'
+$SpotMonitorFreq = 'ButtonListMask/ButtonListContent/UpdateSpotMonitorFreqButton'
+
+If
+	$Stage == 1
+Then
+	$TimeManager settimer $Timer
+	$TimeManager starttimer
+Endif
+
+Do 'InterventionLimit.txt'
+
+$GlobalVar setglobal 'UsingTool' false
+
+			If
+				$Patient isCurrent
+			Then
+				Do 'Setup/NursePlayer'
+				$Cart = 'Cart'
+				$Cart moveTo $PlayerNurse 0
+				Wait 0
+				$Cart localMoveX .51 0
+				Wait 0
+				$Cart localMoveZ .51 0
+				Wait 0
+				$Cart localRotateY 180 0
+				Wait 0
+				$HandScrub = 'HandScrub'
+				$CartLook = $Cart + '/close'
+			Endif
+			Wait 0.5
+
+
+
+############ Loop and check for buttons or patient to be pressed
+
+
+Label 'LoopN1'
+
+	$PatientCheckTotal =
+	  $GlobalVar getGlobal 'PatientCheckDone'
+
+	$Stage =
+	  $GlobalVar getGlobal 'Stage'
+
+	$UsingTool =
+	  $GlobalVar getGlobal 'UsingTool'
+
+	If
+		$SumButton pressed
+	Then
+		$SumButton reset
+		$GlobalVar setglobal 'UsingTool' true
+		$CheckCanvas off
+		PatInfoCanvas off
+		If
+			$InterventionsCanvas isOn
+		Then
+			$UIMan closetoolinventory
+		Endif
+		Do 'SummaryCheck.txt'
+		$GlobalVar setglobal 'UsingTool' false
+	Endif
+
+	If
+		$PatientCheckTotal = true
+	Then
+		wait 1    #wait for all GMs to finish up
+		If
+			$Stage = 1
+		Then
+			$Stage2Sum = true
+		Endif
+		Do 'NEWS_Nurse/ChangeStage.txt'
+	Endif
+
+	If
+		$TimeManager checktimer 0
+	Then
+		Prompt 'TIME RAN OUT!'
+		Wait 5
+		If
+			$UsingTool = false
+		Then
+			wait 1    #wait for all GMs to finish up
+			$CheckCanvas off
+			If
+				$InterventionsCanvas isOn
+			Then
+				$UIMan closetoolinventory
+			Endif
+			PatInfoCanvas off
+			Do 'NEWS_Nurse/ChangeStage.txt'
+			If
+				$Stage = 3
+			Then
+				wait .2
+				$PlayerStage3Start =
+				$GlobalVar getglobal 'EWSBed'
+				Player align $PlayerStage3Start 0.5
+				Prompt 'Moving to deteriorating patient!'
+				wait 1 
+				Prompt ''
+			Endif
+		Endif
+	Endif
+
+	If
+		$EndGame isOnAndPressed
+	Then
+		#Do 'EndCheck.txt'
+		If
+			$BedNumber = 1
+		Then
+			ScoreTracker EndStage
+		Endif
+
+		Wait 1
+
+		If
+            $BedNumber = 1
+        Then		
+            ScoreTracker CloseStage
+        Endif
+        
+        Wait 1  #needed for scorm
+        SceneManager switchtoscene Scenes/NEWS/MainMenu
+	Endif
+
+	If
+		$Patient isCurrent
+	Then
+		#Prompt 'MainLoop:Patient active: ' + Patient 
+		#Wait .5
+		#Prompt '' 
+		#PatientName + count
+		
+		#Checking if the tool canvas is active
+		If
+			$InterventionsCanvas isOn
+		Then
+			Do 'InterventionAssessmentChoices'
+		EndIf
+
+		If
+			$EWSCheck pressed
+		Then
+			$EWSCheck reset
+			$GlobalVar setglobal 'UsingTool' true
+			Do 'EWSCheck.txt'
+			$GlobalVar setglobal 'UsingTool' false
+		Endif
+		
+		#If
+		#	$Nurse pressed
+		#Then
+	#		$Nurse reset
+	#		Do 'NEWS_Nurse/CallSeniorResident.txt'
+	#	Endif
+	Else
+
+		If
+			$Patient pressed
+		Then
+			If
+				$InterventionsCanvas isOn
+			Then
+				$UIMan closetoolinventory
+			Endif
+			$Patient reset
+			$GlobalVar setglobal 'UsingTool' true
+			If
+				/PatientPreCanvas isoff
+			Then
+				Player align $PlayerStart 0.5
+				Prompt 'Moving to patient ' + PatientName
+			Else
+				$Patient reset
+			Endif
+				$GlobalVar setglobal 'UsingTool' false
+
+			If
+				PatInfoCanvas ison
+			Then
+				$PC_Info reset
+				PatInfoCanvas off
+			Endif
+			Wait 0.5
+
+			If
+				$Patient isCurrent
+			Then
+				Do 'Setup/NursePlayer'
+				$Cart = 'Cart'
+				$Cart moveTo $PlayerNurse 0
+				Wait 0
+				$Cart localMoveX .51 0
+				Wait 0
+				$Cart localMoveZ .51 0
+				Wait 0
+			Endif
+			Wait 0.5
+
+			Prompt ''
+		
+		Endif
+		Do 'Actions/HandWash/NurseWash.txt'
+		Wait 1
+#		Prompt ''
+		Goto 'LoopN1'		
+	Endif
+
+	If
+		$UseToolButton pressed
+	Then
+		$UseToolButton reset
+		$CheckCanvas off
+		PatInfoCanvas off
+		If
+			$Stage == 2
+		Then
+			turnOff $EWSCheck
+		Endif
+		$UIMan opentoolinventory
+	Endif
+
+	If
+		$CloseTools isOnAndPressed
+	Then
+		$CloseTools reset
+		$UIMan closetoolinventory
+		If
+			$Stage == 2
+		Then
+			turnOn $EWSCheck
+		Endif
+		$Patient reset
+	Endif
+
+	If
+		$PatientSign pressed
+	Then
+		$PatientSign reset
+		If
+			$Stage == 2
+		Then
+			turnOff $EWSCheck
+		Endif
+		$GlobalVar setglobal 'UsingTool' true
+		If
+			$InterventionsCanvas isOn
+		Then
+			$UIMan closetoolinventory
+		Endif
+		Player align $LookAtPatientSign 1
+		$ECGCan on
+		label 'signLoop'
+		If
+			$BackECG pressed
+		Then
+			$BackECG reset
+			$ECGCan off
+			Player align $PlayerStart 1
+			Wait .5
+			$UseToolButton reset
+			$GlobalVar setglobal 'UsingTool' false
+			If
+				$Stage == 2
+			Then
+				turnOn $EWSCheck
+			Endif
+			Goto 'LoopN1'
+		Endif
+		Goto 'signLoop'
+	Endif
+
+	If
+		$HandScrub pressed
+	Then
+		$HandScrub reset
+
+		Prompt 'Hand Hygene'
+
+		Do 'Actions/HandWash/StandardHandHygiene.txt'
+		Wait 1
+		Prompt ''
+		Player align $PlayerStart 0.5
+	Endif
+
+	If
+		$Patient pressed
+	Then
+
+		$GlobalVar setglobal 'UsingTool' true
+		If
+			$InterventionsCanvas isOn
+		Then
+			$UIMan closetoolinventory
+		Endif
+#		Speaker2 'N1: Patient = ' + PatientName
+		Player align $PlayerStart 0.5
+		Wait .5
+		$Patient reset
+		$Patient outline.off
+		Do 'NEWS_Nurse/EngagePatient.txt'
+		$UseToolButton reset
+		$Patient outline.on
+		JoystickCanvas on
+		$GlobalVar setglobal 'UsingTool' false
+		#Player align PlayerStart
+	Endif
+
+	If
+		$PC_Info pressed
+	Then
+		$PC_Info reset
+		If
+			PatInfoCanvas isoff
+		Then
+			PatInfoCanvas on
+			$Pat_Name write $PatientName
+			$Pat_IC write $PatientIC
+			$Pat_Diagnosis write $PatientDiag
+			$Pat_Profile write $PatientProf
+			$Pat_Sum write $PatientSummary
+			Do 'InterventionWrite.txt'
+		Else
+			PatInfoCanvas off
+		Endif
+	Endif
+
+	If
+		$Pat_Back pressed
+	Then
+		$Pat_Back reset
+		PatInfoCanvas off
+	Endif
+
+	If
+		$Vitalsmonitor pressed
+	Then
+		$Vitalsmonitor reset
+		If
+			$Stage == 2
+		Then
+			turnOff $EWSCheck
+		Endif
+		Do 'Intervention/AssessECG.txt'
+	Endif
+
+	If
+		$Phone pressed
+	Then
+		$Phone reset
+		Do 'NEWS_Nurse/PhoneDoctorChoice.txt'
+	Endif
+
+	If
+		$Scene_Exit pressed
+	Then 
+		$Scene_Exit reset
+		#ScoreTracker rangecomplete 0-14
+		Do 'EndCheck.txt'
+	Endif
+
+	If
+		$ChecklistButton pressed
+	Then
+		$ChecklistButton reset
+		If
+			$CheckCanvas isoff
+		Then
+			Do 'Checklist.txt'
+		Else
+			$CheckCanvas off
+		Endif
+	Endif
+
+	If
+		$Check_End pressed
+	Then
+		$Check_End reset
+		$CheckCanvas off
+	Endif
+
+	Wait .2
+Goto 'LoopN1'

@@ -169,7 +169,7 @@ const REQUEST_TERMS = {
   Bin: "bins?",
   Screen: "screens?",
   Chair: "chairs?",
-  Nurse: "nurses?",
+  Nurse: "nurse(?:\\s*stations?|\\s*desks?|\\s*clickable|\\s*slots?|s\\b)?",
   Cabinet: "cabinets?"
 };
 
@@ -187,8 +187,71 @@ function explicitCountFor(prompt, termPattern) {
   return match ? parseCount(match[1]) : null;
 }
 
-function termMentioned(prompt, termPattern) {
-  return new RegExp(`\\b${termPattern}\\b`, "i").test(String(prompt || ""));
+function slotIndicesFor(prompt, termPattern) {
+  const re = new RegExp(`\\b${termPattern}\\s*\\(?\\s*(?:slots?\\s*)?([\\d,\\s]+)\\)?`, "i");
+  const match = String(prompt || "").match(re);
+  if (match) {
+    const nums = match[1].match(/\d+/g);
+    if (nums && nums.length > 0) {
+      return { count: nums.length, maxSlot: Math.max(...nums.map(Number)) };
+    }
+  }
+  return null;
+}
+
+function isLocationNegated(prompt, termPattern) {
+  const re = new RegExp(`\\b(?:no|not|without|never|don't|dont|do\\s+not|avoid|excluding|except)\\s+(?:any\\s+)?(?:other\\s+)?(?:[a-zA-Z0-9_-]+\\s+){0,2}${termPattern}\\b`, "i");
+  return re.test(prompt);
+}
+
+function isLocationPlacementRequested(prompt, location, termPattern) {
+  const text = String(prompt || "");
+
+  // If negated, it's explicitly NOT being requested
+  if (isLocationNegated(text, termPattern)) {
+    return false;
+  }
+
+  if (location === "Nurse") {
+    // In clinical simulations, "nurse" is frequently a narrative actor:
+    // e.g. "nurse movement", "nurse enters", "nurse assessment", "nurse explains", "for nurse movement"
+    // In LevelGen, "Nurse" is strictly a furniture slot for static NurseClickable01 props.
+    // It is only a LevelGen placement request if it explicitly references the slot/prop:
+    if (/NurseClickable/i.test(text)) return true;
+    if (/\bnurse\s*(?:station|desk|slot|prop|object|asset)s?\b/i.test(text)) return true;
+    if (/\bNurse\s*(?:\(?\s*\d+|\s*#\d+)/i.test(text)) return true;
+    if (/\b(?:place|add|include|put|spawn|furnish with)\s+(?:a|an|\d+|one|two)?\s*(?:clickable\s+)?nurse\s*(?:station|desk|slot|prop|asset)?\b/i.test(text)) {
+      if (/\b(?:for|during|after)\s+nurse\s+movement\b/i.test(text)) return false;
+      return true;
+    }
+    return false;
+  }
+
+  // Check explicit slot numbers e.g. "Bed (1, 2, 3)" or "Desk 1"
+  if (slotIndicesFor(text, termPattern) !== null) {
+    return true;
+  }
+
+  // Check explicit count e.g. "1 desk", "two chairs", "a screen"
+  if (explicitCountFor(text, termPattern) !== null) {
+    return true;
+  }
+
+  // Check placement verbs e.g. "place Bed", "add Screen", "with desk"
+  const placementVerbPattern = new RegExp(`\\b(?:place|add|include|put|spawn|furnish with|install|with)\\s+(?:a|an|the|\\d+|one|two|three|four)?\\s*${termPattern}\\b`, "i");
+  if (placementVerbPattern.test(text)) {
+    return true;
+  }
+
+  // Check if any named parent asset of this location is mentioned
+  const assets = PARENT_ASSETS[location] || [];
+  for (const asset of assets) {
+    if (asset !== "Placeholder" && new RegExp(`\\b${asset}\\b`, "i").test(text)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function guardLevelGenPrompt(rawPrompt, roomName) {
@@ -201,7 +264,9 @@ export function guardLevelGenPrompt(rawPrompt, roomName) {
   }
 
   for (const [location, termPattern] of Object.entries(REQUEST_TERMS)) {
-    if (!termMentioned(prompt, termPattern)) continue;
+    if (!isLocationPlacementRequested(prompt, location, termPattern)) {
+      continue;
+    }
 
     const available = roomRules[location] || [];
     if (available.length === 0) {
@@ -209,9 +274,12 @@ export function guardLevelGenPrompt(rawPrompt, roomName) {
       continue;
     }
 
-    const requested = explicitCountFor(prompt, termPattern);
-    if (requested !== null && requested > available.length) {
-      problems.push(`${roomName} supports only ${available.length} ${location} slot(s), but ${requested} were requested.`);
+    const slots = slotIndicesFor(prompt, termPattern);
+    const count = explicitCountFor(prompt, termPattern);
+    const requestedCount = slots ? Math.max(slots.count, slots.maxSlot) : (count !== null ? count : 1);
+
+    if (requestedCount > available.length) {
+      problems.push(`${roomName} supports only ${available.length} ${location} slot(s), but ${requestedCount} were requested.`);
     }
   }
 
