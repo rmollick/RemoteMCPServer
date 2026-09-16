@@ -1,0 +1,35 @@
+name: cerebrum-remotemcp
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - nodejs>=20.0.0
+  - npm>=10.0.0
+  - git
+  - curl
+  - pip
+  - pip:
+    - pyyaml>=6.0
+
+# ----------------------------------------------------------------------
+# Cerebrum Multi-Agentic Studio Environment Setup Instructions
+# ----------------------------------------------------------------------
+# 1. Create and activate the conda environment:
+#      conda env create -f environment.yml
+#      conda activate cerebrum-remotemcp
+#
+# 2. Install Node.js dependencies for root server:
+#      npm install
+#
+# 3. Install Node.js dependencies for MCP daemon:
+#      cd MCP/remoteMCP/daemon
+#      npm install
+#      cd ../../..
+#
+# 4. (Optional) Install Ollama for local LLM inference:
+#      Download from: https://ollama.com
+#      Serve: ollama serve
+#      Pull models:
+#        ollama pull gemma3:4b
+#        ollama pull gemma4:e2b
+# ----------------------------------------------------------------------

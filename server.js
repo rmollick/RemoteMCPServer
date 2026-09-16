@@ -9,8 +9,13 @@ const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
 const PORT = process.env.PORT || 3000;
+const DEFAULT_PROVIDER = process.env.MODEL_PROVIDER || "ollama";
+const DEFAULT_GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || process.env.LOCAL_MODEL;
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || process.env.LOCAL_MODEL || "gemma3:4b";
+
+const GEMINI_MODELS = process.env.GEMINI_MODELS ? process.env.GEMINI_MODELS.split(",").map(s => s.trim()).filter(Boolean) : ["gemini-3.6-flash", "gemini-3.5-pro", "gemini-3.0-pro", "gemini-2.5-flash"];
+const OLLAMA_MODELS = process.env.OLLAMA_MODELS ? process.env.OLLAMA_MODELS.split(",").map(s => s.trim()).filter(Boolean) : ["gemma3:4b", "gemma4:e2b", "llama3:8b"];
 
 const PROJECT_ROOT =
   process.env.CEREBRUM_PROJECT_ROOT ||
@@ -361,7 +366,10 @@ function buildSequentialTasks(userPrompt) {
   };
 }
 
-async function runOrchestrator(userPrompt, roomName, componentConfigs = {}) {
+async function runOrchestrator(userPrompt, roomName, componentConfigs = {}, modelOpts = {}) {
+  const provider = modelOpts.provider || DEFAULT_PROVIDER;
+  const model = modelOpts.model || (provider.toLowerCase() === "gemini" ? DEFAULT_GEMINI_MODEL : OLLAMA_MODEL);
+
   let targetDetails = "";
   if (componentConfigs?.levelgen?.action === "edit") {
     targetDetails += `\n- LevelGen Component: EDIT existing file (${componentConfigs.levelgen.targetPath || "selected layout"}).`;
@@ -401,10 +409,10 @@ Do not return any explanations, note blocks, or markdown code fences (like \`\`\
 `;
 
   try {
-    const data = await callOllama({
-      model: OLLAMA_MODEL,
+    const data = await callModel({
+      provider,
+      model,
       prompt,
-      stream: false,
       format: "json"
     });
     const text = cleanGenerated(data.response || "{}");
@@ -426,7 +434,9 @@ async function generateOneMode({
   additionalContext = "",
   action = "create",
   targetPath = null,
-  existingContent = null
+  existingContent = null,
+  provider = DEFAULT_PROVIDER,
+  model = null
 }) {
   if (!userPrompt.trim()) {
     return {
@@ -485,17 +495,14 @@ Do not invent a different file format.
 If unsure, copy the structure from the most relevant corrected/manual examples.
 `;
 
-  const ollamaBody = {
-    model: OLLAMA_MODEL,
+  const activeModel = model || (provider.toLowerCase() === "gemini" ? DEFAULT_GEMINI_MODEL : OLLAMA_MODEL);
+  const data = await callModel({
+    provider,
+    model: activeModel,
     prompt,
-    stream: false
-  };
+    imageBase64
+  });
 
-  if (imageBase64) {
-    ollamaBody.images = [imageBase64];
-  }
-
-  const data = await callOllama(ollamaBody);
   const script = cleanGenerated(data.response || "");
   const evaluation = localEvaluate(script, mode);
 
@@ -524,7 +531,8 @@ If unsure, copy the structure from the most relevant corrected/manual examples.
     savedPath,
     activePath,
     mode,
-    model: OLLAMA_MODEL,
+    provider,
+    model: activeModel,
     roomName: mode === "levelgen" ? roomName : undefined,
     usedFiles: files,
     localEvaluation: evaluation
@@ -635,6 +643,79 @@ function localEvaluate(script, mode, expectedRoomName = null) {
   return { pass: errors.length === 0, errors, warnings };
 }
 
+function getGeminiApiKey() {
+  let key = process.env.GEMINI_API_KEY;
+  if (key && key !== "key_here" && key !== "insert key" && key !== '""' && key !== "''") {
+    return key.replace(/^["']|["']$/g, "").trim();
+  }
+
+  const candidateEnvPaths = [
+    path.join(__dirname, ".env"),
+    path.join(__dirname, "MCP", "remoteMCP", "daemon", ".env"),
+    path.join(process.cwd(), ".env"),
+    path.join(process.cwd(), "MCP", "remoteMCP", "daemon", ".env")
+  ];
+
+  for (const p of candidateEnvPaths) {
+    if (fs.existsSync(p)) {
+      try {
+        const content = fs.readFileSync(p, "utf8");
+        const match = content.match(/^GEMINI_API_KEY\s*=\s*["']?([^"'\r\n]+)["']?/m);
+        if (match && match[1] && match[1] !== "key_here" && match[1] !== "insert key") {
+          const val = match[1].trim();
+          process.env.GEMINI_API_KEY = val;
+          return val;
+        }
+      } catch {}
+    }
+  }
+  return null;
+}
+
+async function callGemini({ prompt, model = DEFAULT_GEMINI_MODEL, systemInstruction = null, imageBase64 = null, format = null }) {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) {
+    throw new Error("Missing GEMINI_API_KEY in .env");
+  }
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`;
+
+  const parts = [];
+  if (imageBase64) {
+    parts.push({
+      inline_data: {
+        mime_type: "image/png",
+        data: imageBase64
+      }
+    });
+  }
+  parts.push({ text: prompt });
+
+  const body = {
+    contents: [{ role: "user", parts }]
+  };
+  if (systemInstruction) {
+    body.system_instruction = { parts: [{ text: systemInstruction }] };
+  }
+  if (format === "json") {
+    body.generationConfig = { response_mime_type: "application/json" };
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini API error: ${errorText}`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
+  return { response: text };
+}
+
 async function callOllama(body) {
   const response = await fetch(`${OLLAMA_URL}/api/generate`, {
     method: "POST",
@@ -648,6 +729,47 @@ async function callOllama(body) {
   return response.json();
 }
 
+async function callModel({
+  prompt,
+  provider = DEFAULT_PROVIDER,
+  model = null,
+  systemInstruction = null,
+  imageBase64 = null,
+  format = null
+}) {
+  const selectedProvider = (provider || DEFAULT_PROVIDER).toLowerCase();
+  if (selectedProvider === "gemini") {
+    const geminiModel = model || DEFAULT_GEMINI_MODEL;
+    return await callGemini({ prompt, model: geminiModel, systemInstruction, imageBase64, format });
+  }
+
+  const ollamaModel = model || OLLAMA_MODEL;
+  const body = {
+    model: ollamaModel,
+    prompt,
+    stream: false
+  };
+  if (systemInstruction) body.system = systemInstruction;
+  if (format) body.format = format;
+  if (imageBase64) body.images = [imageBase64];
+  return await callOllama(body);
+}
+
+app.get("/api/models", (req, res) => {
+  res.json({
+    ok: true,
+    defaultProvider: DEFAULT_PROVIDER,
+    defaultModels: {
+      gemini: DEFAULT_GEMINI_MODEL,
+      ollama: OLLAMA_MODEL,
+    },
+    providers: {
+      gemini: GEMINI_MODELS,
+      ollama: OLLAMA_MODELS,
+    },
+  });
+});
+
 app.get("/api/status", (req, res) => {
   const files = getAllKnowledgeFiles();
   res.json({
@@ -657,7 +779,8 @@ app.get("/api/status", (req, res) => {
     levelgenDir: LEVELGEN_DIR,
     localManualDir: LOCAL_MANUAL_DIR,
     localCorrectedDir: LOCAL_CORRECTED_DIR,
-    model: OLLAMA_MODEL,
+    provider: DEFAULT_PROVIDER,
+    model: DEFAULT_PROVIDER === "gemini" ? DEFAULT_GEMINI_MODEL : OLLAMA_MODEL,
     ollamaUrl: OLLAMA_URL,
     fileCount: files.length,
     sampleFiles: files.slice(0, 30).map((f) => ({ rel: f.rel, path: f.path, size: f.size }))
@@ -828,17 +951,18 @@ app.post("/generate", upload.single("image"), async (req, res) => {
   try {
     const mode = req.body.mode || "scenario";
     const userPrompt = req.body.prompt || "";
+    const roomName = req.body.roomName || "RoomMedExam_base";
     const defaultName = mode === "levelgen"
       ? "GeneratedLevel"
       : mode === "character"
         ? "GeneratedCharacter"
         : "GeneratedScenario";
-    const fileName = safeFileName(req.body.fileName || defaultName);
+    const fileName = req.body.fileName || defaultName;
     const selectedPaths = req.body.selectedPaths ? JSON.parse(req.body.selectedPaths) : [];
     const topK = Number(req.body.topK || DEFAULT_TOP_K);
     const imageBase64 = req.file ? req.file.buffer.toString("base64") : null;
-    const action = req.body.action || "create";
-    const targetPath = req.body.targetPath || null;
+    const provider = req.body.provider || DEFAULT_PROVIDER;
+    const model = req.body.model || null;
 
     const result = await generateOneMode({
       mode,
@@ -847,8 +971,9 @@ app.post("/generate", upload.single("image"), async (req, res) => {
       selectedPaths,
       topK,
       imageBase64,
-      action,
-      targetPath
+      roomName,
+      provider,
+      model
     });
 
     if (result.blocked) {
@@ -870,6 +995,8 @@ app.post(["/generate-sequential", "/api/orchestrate/generate-sequential"], uploa
     const selectedPaths = req.body.selectedPaths ? JSON.parse(req.body.selectedPaths) : [];
     const topK = Number(req.body.topK || DEFAULT_TOP_K);
     const imageBase64 = req.file ? req.file.buffer.toString("base64") : null;
+    const provider = req.body.provider || DEFAULT_PROVIDER;
+    const model = req.body.model || null;
 
     let componentConfigs = {};
     if (req.body.componentConfigs) {
@@ -888,9 +1015,9 @@ app.post(["/generate-sequential", "/api/orchestrate/generate-sequential"], uploa
 
     const tPipelineStart = performance.now();
 
-    console.log(`🤖 Orchestrator planning started for prompt: "${userPrompt}"`);
+    console.log(`🤖 Orchestrator planning started [${provider}/${model || "default"}] for prompt: "${userPrompt}"`);
     const tPlanStart = performance.now();
-    const plan = await runOrchestrator(userPrompt, roomName, componentConfigs);
+    const plan = await runOrchestrator(userPrompt, roomName, componentConfigs, { provider, model });
     const planningMs = performance.now() - tPlanStart;
     console.log(`📋 Orchestrator plan generated in ${planningMs.toFixed(1)}ms:`, JSON.stringify(plan, null, 2));
 
@@ -912,7 +1039,9 @@ app.post(["/generate-sequential", "/api/orchestrate/generate-sequential"], uploa
       additionalContext: `MASTER SIMULATION PLAN:\n${JSON.stringify(plan, null, 2)}`,
       action: lgConfig.action || "create",
       targetPath: lgConfig.targetPath || null,
-      existingContent: lgConfig.existingContent || null
+      existingContent: lgConfig.existingContent || null,
+      provider,
+      model
     });
     const levelgenMs = performance.now() - tLgStart;
 
@@ -946,7 +1075,9 @@ app.post(["/generate-sequential", "/api/orchestrate/generate-sequential"], uploa
       additionalContext: characterContext,
       action: chConfig.action || "create",
       targetPath: chConfig.targetPath || null,
-      existingContent: chConfig.existingContent || null
+      existingContent: chConfig.existingContent || null,
+      provider,
+      model
     });
     const characterMs = performance.now() - tChStart;
 
@@ -983,7 +1114,9 @@ app.post(["/generate-sequential", "/api/orchestrate/generate-sequential"], uploa
       additionalContext: scenarioContext,
       action: scConfig.action || "create",
       targetPath: scConfig.targetPath || null,
-      existingContent: scConfig.existingContent || null
+      existingContent: scConfig.existingContent || null,
+      provider,
+      model
     });
     const scenarioMs = performance.now() - tScStart;
 
@@ -1000,6 +1133,8 @@ app.post(["/generate-sequential", "/api/orchestrate/generate-sequential"], uploa
 
     res.json({
       ok: true,
+      provider,
+      model: model || (provider.toLowerCase() === "gemini" ? DEFAULT_GEMINI_MODEL : OLLAMA_MODEL),
       orchestratorPlan: plan,
       order: ["levelgen", "character", "scenario"],
       results,
@@ -1025,6 +1160,9 @@ app.post("/evaluate", async (req, res) => {
     const mode = req.body.mode || "scenario";
     const script = req.body.script || "";
     const prompt = req.body.prompt || "Evaluate this generated file.";
+    const provider = req.body.provider || DEFAULT_PROVIDER;
+    const model = req.body.model || null;
+
     const { context, files } = buildContext({ prompt, mode, selectedPaths: [], topK: 8 });
     const local = localEvaluate(script, mode);
     const evalPrompt = `
@@ -1041,10 +1179,10 @@ ${JSON.stringify(local, null, 2)}
 `;
     let modelEvaluation = null;
     try {
-      const data = await callOllama({
-        model: OLLAMA_MODEL,
+      const data = await callModel({
+        provider,
+        model,
         prompt: evalPrompt,
-        stream: false,
         format: "json"
       });
       try {
@@ -1052,8 +1190,8 @@ ${JSON.stringify(local, null, 2)}
       } catch {
         modelEvaluation = { raw: data.response };
       }
-    } catch (ollamaErr) {
-      modelEvaluation = { note: "Model evaluation skipped or offline", error: ollamaErr.message };
+    } catch (evalErr) {
+      modelEvaluation = { note: "Model evaluation skipped or offline", error: evalErr.message };
     }
     res.json({ localEvaluation: local, modelEvaluation, usedFiles: files });
   } catch (err) {

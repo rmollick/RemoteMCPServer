@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import multer from "multer";
+import { GoogleGenAI } from "@google/genai";
 import {
   ROOM_CONSTRAINTS,
   guardLevelGenPrompt,
@@ -25,6 +26,8 @@ const LOCAL_SCENARIO_DIR = path.join(DAEMON_ROOT, "Scenario");
 const LOCAL_PATIENT_DIR = path.join(DAEMON_ROOT, "Patient");
 const MEMORY_PATH = path.join(DAEMON_ROOT, "Workspace Memory.txt");
 
+const DEFAULT_PROVIDER = process.env.MODEL_PROVIDER || "ollama";
+const DEFAULT_GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || process.env.LOCAL_MODEL || "gemma3:4b";
 
@@ -366,6 +369,70 @@ function localEvaluate(script, mode, expectedRoomName = null) {
   };
 }
 
+function getGeminiApiKey() {
+  let key = process.env.GEMINI_API_KEY;
+  if (key && key !== "key_here" && key !== "insert key" && key !== '""' && key !== "''") {
+    return key.replace(/^["']|["']$/g, "").trim();
+  }
+
+  const candidateEnvPaths = [
+    path.join(DAEMON_ROOT, ".env"),
+    path.join(DAEMON_ROOT, "..", "..", ".env"),
+    path.join(process.cwd(), ".env"),
+    path.join(process.cwd(), "MCP", "remoteMCP", "daemon", ".env")
+  ];
+
+  for (const p of candidateEnvPaths) {
+    if (fs.existsSync(p)) {
+      try {
+        const content = fs.readFileSync(p, "utf8");
+        const match = content.match(/^GEMINI_API_KEY\s*=\s*["']?([^"'\r\n]+)["']?/m);
+        if (match && match[1] && match[1] !== "key_here" && match[1] !== "insert key") {
+          const val = match[1].trim();
+          process.env.GEMINI_API_KEY = val;
+          return val;
+        }
+      } catch {}
+    }
+  }
+  return null;
+}
+
+function getGeminiClient() {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) {
+    throw new Error("Missing GEMINI_API_KEY in .env");
+  }
+  return new GoogleGenAI({ apiKey });
+}
+
+async function callGemini({ prompt, model = DEFAULT_GEMINI_MODEL, systemInstruction = null, imageBase64 = null, format = null }) {
+  const ai = getGeminiClient();
+  const parts = [];
+  if (imageBase64) {
+    parts.push({
+      inlineData: {
+        mimeType: "image/png",
+        data: imageBase64
+      }
+    });
+  }
+  parts.push({ text: prompt });
+  const contents = [{ role: "user", parts }];
+
+  const config = {};
+  if (systemInstruction) config.systemInstruction = systemInstruction;
+  if (format === "json") config.responseMimeType = "application/json";
+
+  const response = await ai.models.generateContent({
+    model,
+    contents,
+    config
+  });
+
+  return { response: response.text || "" };
+}
+
 async function callOllama(body) {
   const response = await fetch(`${OLLAMA_URL}/api/generate`, {
     method: "POST",
@@ -381,6 +448,32 @@ async function callOllama(body) {
   }
 
   return response.json();
+}
+
+async function callModel({
+  prompt,
+  provider = DEFAULT_PROVIDER,
+  model = null,
+  systemInstruction = null,
+  imageBase64 = null,
+  format = null
+}) {
+  const selectedProvider = (provider || DEFAULT_PROVIDER).toLowerCase();
+  if (selectedProvider === "gemini") {
+    const geminiModel = model || DEFAULT_GEMINI_MODEL;
+    return await callGemini({ prompt, model: geminiModel, systemInstruction, imageBase64, format });
+  }
+
+  const ollamaModel = model || OLLAMA_MODEL;
+  const body = {
+    model: ollamaModel,
+    prompt,
+    stream: false
+  };
+  if (systemInstruction) body.system = systemInstruction;
+  if (format) body.format = format;
+  if (imageBase64) body.images = [imageBase64];
+  return await callOllama(body);
 }
 
 function outputRulesForMode(mode, roomName) {
@@ -502,7 +595,10 @@ function buildSequentialTasks(userPrompt) {
   };
 }
 
-async function runOrchestrator(userPrompt, roomName, componentConfigs = {}) {
+async function runOrchestrator(userPrompt, roomName, componentConfigs = {}, modelOpts = {}) {
+  const provider = modelOpts.provider || DEFAULT_PROVIDER;
+  const model = modelOpts.model || (provider.toLowerCase() === "gemini" ? DEFAULT_GEMINI_MODEL : OLLAMA_MODEL);
+
   let targetDetails = "";
   if (componentConfigs?.levelgen?.action === "edit") {
     targetDetails += `\n- LevelGen Component: EDIT existing file (${componentConfigs.levelgen.targetPath || "selected layout"}).`;
@@ -542,10 +638,10 @@ Do not return any explanations, note blocks, or markdown code fences (like \`\`\
 `;
 
   try {
-    const data = await callOllama({
-      model: OLLAMA_MODEL,
+    const data = await callModel({
+      provider,
+      model,
       prompt,
-      stream: false,
       format: "json"
     });
     const text = cleanGenerated(data.response || "{}");
@@ -568,7 +664,9 @@ async function generateOneMode({
   additionalContext = "",
   action = "create",
   targetPath = null,
-  existingContent = null
+  existingContent = null,
+  provider = DEFAULT_PROVIDER,
+  model = null
 }) {
   if (!userPrompt.trim()) {
     return {
@@ -602,30 +700,36 @@ async function generateOneMode({
   const { context, files } = buildContext({
     prompt: userPrompt,
     mode,
-    selectedPaths: targetPath ? [...(selectedPaths || []), targetPath] : selectedPaths,
-    topK
+    selectedPaths,
+    topK,
+    roomName
   });
 
-  let prompt = `
-You are connected to a local Unity/Cerebrum project.
-You must generate files based on the reference project files below.
+  const memory = getWorkspaceMemory(mode);
 
+  let prompt = `
+You are connected to a local Unity/Cerebrum project as the specialized ${mode.toUpperCase()} generator.
+Your job is to generate a working ${mode} script based on the user request, the workspace context, and authentic project examples.
+Retrieved files are evidence of authentic project patterns.
+
+${memory ? `WORKSPACE MEMORY:\n${memory}\n` : ""}
 ${context}
 `;
 
-  if (baseContent) {
+  if (action === "edit" && baseContent) {
     prompt += `
-[EXISTING ${mode.toUpperCase()} FILE TO EDIT]
---- START EXISTING CONTENT ---
+[EXISTING SCRIPT TO EDIT]
+--- BEGIN CURRENT FILE ---
 ${baseContent}
---- END EXISTING CONTENT ---
-INSTRUCTION FOR EDITING:
-Modify the above existing file to implement the user request. Keep all valid parts and structures that don't need changes.
+--- END CURRENT FILE ---
 `;
   }
 
   if (additionalContext) {
-    prompt += `\n[ADDITIONAL PIPELINE CONTEXT]\n${additionalContext}\n`;
+    prompt += `
+ADDITIONAL SEQUENTIAL PIPELINE CONTEXT:
+${additionalContext}
+`;
   }
 
   prompt += `
@@ -642,17 +746,14 @@ Do not invent a different file format.
 If unsure, copy the structure from the most relevant corrected/manual examples.
 `;
 
-  const ollamaBody = {
-    model: OLLAMA_MODEL,
+  const activeModel = model || (provider.toLowerCase() === "gemini" ? DEFAULT_GEMINI_MODEL : OLLAMA_MODEL);
+  const data = await callModel({
+    provider,
+    model: activeModel,
     prompt,
-    stream: false
-  };
+    imageBase64
+  });
 
-  if (imageBase64) {
-    ollamaBody.images = [imageBase64];
-  }
-
-  const data = await callOllama(ollamaBody);
   const script = cleanGenerated(data.response || "");
   const evaluation = localEvaluate(script, mode, mode === "levelgen" ? roomName : null);
 
@@ -694,7 +795,8 @@ If unsure, copy the structure from the most relevant corrected/manual examples.
     savedPath,
     activePath,
     mode,
-    model: OLLAMA_MODEL,
+    provider,
+    model: activeModel,
     roomName: mode === "levelgen" ? roomName : undefined,
     usedFiles: files,
     localEvaluation: evaluation
@@ -761,6 +863,8 @@ export function installLevelGenRoutes(app) {
       const selectedPaths = req.body.selectedPaths ? JSON.parse(req.body.selectedPaths) : [];
       const topK = Number(req.body.topK || DEFAULT_TOP_K);
       const imageBase64 = req.file ? req.file.buffer.toString("base64") : null;
+      const provider = req.body.provider || DEFAULT_PROVIDER;
+      const model = req.body.model || null;
 
       const result = await generateOneMode({
         mode,
@@ -770,7 +874,9 @@ export function installLevelGenRoutes(app) {
         topK,
         imageBase64,
         roomName,
-        strictConstraints
+        strictConstraints,
+        provider,
+        model
       });
 
       if (result.blocked) {
@@ -868,11 +974,14 @@ export function installLevelGenRoutes(app) {
     }
   });
 
-  app.post("/api/edit-component", async (req, res) => {
+  app.post("/generate-component-edit", async (req, res) => {
     try {
-      const { mode = "scenario", prompt = "", currentContent = "", targetPath = "", roomName = "RoomMedExam_base" } = req.body;
-      if (!prompt.trim()) {
-        return res.status(400).json({ error: "Edit prompt is required." });
+      const { mode, prompt, targetPath, currentContent, roomName = "RoomMedExam_base" } = req.body;
+      const provider = req.body.provider || DEFAULT_PROVIDER;
+      const model = req.body.model || null;
+
+      if (!prompt || !mode) {
+        return res.status(400).json({ error: "prompt and mode are required." });
       }
 
       let existingText = currentContent;
@@ -909,10 +1018,10 @@ Do not use markdown code fences.
 Output only the complete edited raw script.
 `;
 
-      const data = await callOllama({
-        model: OLLAMA_MODEL,
-        prompt: editPrompt,
-        stream: false
+      const data = await callModel({
+        provider,
+        model,
+        prompt: editPrompt
       });
 
       const updatedScript = cleanGenerated(data.response || "");
@@ -928,6 +1037,8 @@ Output only the complete edited raw script.
       res.json({
         ok: true,
         mode,
+        provider,
+        model,
         script: updatedScript,
         savedPath,
         localEvaluation: evaluation
@@ -947,6 +1058,8 @@ Output only the complete edited raw script.
       const selectedPaths = req.body.selectedPaths ? JSON.parse(req.body.selectedPaths) : [];
       const topK = Number(req.body.topK || DEFAULT_TOP_K);
       const imageBase64 = req.file ? req.file.buffer.toString("base64") : null;
+      const provider = req.body.provider || DEFAULT_PROVIDER;
+      const model = req.body.model || null;
 
       let componentConfigs = {};
       if (req.body.componentConfigs) {
@@ -965,9 +1078,9 @@ Output only the complete edited raw script.
 
       const tPipelineStart = performance.now();
 
-      console.log(`🤖 Orchestrator planning started for prompt: "${userPrompt}"`);
+      console.log(`🤖 Orchestrator planning started [${provider}/${model || "default"}] for prompt: "${userPrompt}"`);
       const tPlanStart = performance.now();
-      const plan = await runOrchestrator(userPrompt, roomName, componentConfigs);
+      const plan = await runOrchestrator(userPrompt, roomName, componentConfigs, { provider, model });
       const planningMs = performance.now() - tPlanStart;
       console.log(`📋 Orchestrator plan generated in ${planningMs.toFixed(1)}ms:`, JSON.stringify(plan, null, 2));
 
@@ -1007,7 +1120,9 @@ Output only the complete edited raw script.
         additionalContext: `MASTER SIMULATION PLAN:\n${JSON.stringify(plan, null, 2)}`,
         action: lgConfig.action || "create",
         targetPath: lgConfig.targetPath || null,
-        existingContent: lgConfig.existingContent || null
+        existingContent: lgConfig.existingContent || null,
+        provider,
+        model
       });
       const levelgenMs = performance.now() - tLgStart;
 
@@ -1042,7 +1157,9 @@ Output only the complete edited raw script.
         additionalContext: characterContext,
         action: chConfig.action || "create",
         targetPath: chConfig.targetPath || null,
-        existingContent: chConfig.existingContent || null
+        existingContent: chConfig.existingContent || null,
+        provider,
+        model
       });
       const characterMs = performance.now() - tChStart;
 
@@ -1080,7 +1197,9 @@ Output only the complete edited raw script.
         additionalContext: scenarioContext,
         action: scConfig.action || "create",
         targetPath: scConfig.targetPath || null,
-        existingContent: scConfig.existingContent || null
+        existingContent: scConfig.existingContent || null,
+        provider,
+        model
       });
       const scenarioMs = performance.now() - tScStart;
 
@@ -1097,6 +1216,8 @@ Output only the complete edited raw script.
 
       res.json({
         ok: true,
+        provider,
+        model: model || (provider.toLowerCase() === "gemini" ? DEFAULT_GEMINI_MODEL : OLLAMA_MODEL),
         orchestratorPlan: plan,
         order: ["levelgen", "character", "scenario"],
         results,
@@ -1123,6 +1244,8 @@ Output only the complete edited raw script.
       const script = req.body.script || "";
       const prompt = req.body.prompt || "Evaluate this generated file.";
       const roomName = req.body.roomName || "RoomMedExam_base";
+      const provider = req.body.provider || DEFAULT_PROVIDER;
+      const model = req.body.model || null;
 
       const { context, files } = buildContext({
         prompt,
@@ -1160,10 +1283,10 @@ Do not return any other text, explanations, or keys. Only return the JSON object
 
       let modelEvaluation = null;
       try {
-        const data = await callOllama({
-          model: OLLAMA_MODEL,
+        const data = await callModel({
+          provider,
+          model,
           prompt: evalPrompt,
-          stream: false,
           format: "json"
         });
         try {
@@ -1171,8 +1294,8 @@ Do not return any other text, explanations, or keys. Only return the JSON object
         } catch {
           modelEvaluation = { raw: data.response };
         }
-      } catch (ollamaErr) {
-        modelEvaluation = { note: "Model evaluation skipped or offline", error: ollamaErr.message };
+      } catch (evalErr) {
+        modelEvaluation = { note: "Model evaluation skipped or offline", error: evalErr.message };
       }
 
       res.json({

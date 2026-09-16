@@ -540,12 +540,26 @@
     </nav>
   </header>
 
-  <div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px;">
-    <div style="display: flex; align-items: center; gap: 12px;">
+  <div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; flex-wrap: wrap; gap: 12px;">
+    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
       <button class="secondary sm" onclick="loadStatus()">↻ Refresh Connection</button>
       <span id="statusLine" class="badge">Connecting to server...</span>
     </div>
-    <div id="activeModelBadge" class="badge badge-info">Model: Loading...</div>
+    <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <label for="providerSelect" style="margin: 0; font-size: 12px; font-weight: 700; color: var(--text-muted);">Provider:</label>
+        <select id="providerSelect" style="padding: 4px 8px; font-size: 12px; border-radius: 6px;" onchange="onProviderChange()">
+          <option value="ollama">Ollama (Local)</option>
+          <option value="gemini">Google Gemini (Cloud)</option>
+        </select>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <label for="modelSelect" style="margin: 0; font-size: 12px; font-weight: 700; color: var(--text-muted);">Model:</label>
+        <select id="modelSelect" style="padding: 4px 8px; font-size: 12px; border-radius: 6px;" onchange="updateModelBadge()">
+        </select>
+      </div>
+      <div id="activeModelBadge" class="badge badge-info">Model: Loading...</div>
+    </div>
   </div>
 
   <div class="grid-2">
@@ -924,15 +938,63 @@ Coordinate choices to check or replace the cannula, wait for choice selection, a
       }
     }
 
+    let modelsByProvider = {
+      gemini: ["gemini-3.6-flash", "gemini-3.5-pro", "gemini-3.0-pro", "gemini-2.5-flash"],
+      ollama: ["gemma3:4b", "gemma4:e2b", "llama3:8b"]
+    };
+
+    function onProviderChange() {
+      const provider = document.getElementById("providerSelect").value;
+      const modelSelect = document.getElementById("modelSelect");
+      modelSelect.innerHTML = "";
+      const models = modelsByProvider[provider] || [];
+      for (const m of models) {
+        const opt = document.createElement("option");
+        opt.value = m;
+        opt.textContent = m;
+        modelSelect.appendChild(opt);
+      }
+      updateModelBadge();
+    }
+
+    function updateModelBadge() {
+      const provider = document.getElementById("providerSelect").value;
+      const model = document.getElementById("modelSelect").value;
+      document.getElementById("activeModelBadge").textContent = `${provider.toUpperCase()} / ${model || "default"}`;
+    }
+
+    async function loadModels() {
+      try {
+        const res = await fetch("/api/models");
+        const data = await res.json();
+        if (data.ok) {
+          if (data.providers) modelsByProvider = data.providers;
+          if (data.defaultProvider) document.getElementById("providerSelect").value = data.defaultProvider;
+          onProviderChange();
+          if (data.defaultModels && data.defaultModels[document.getElementById("providerSelect").value]) {
+            document.getElementById("modelSelect").value = data.defaultModels[document.getElementById("providerSelect").value];
+          }
+          updateModelBadge();
+        }
+      } catch (err) {
+        onProviderChange();
+      }
+    }
+
     async function loadStatus() {
       const line = document.getElementById("statusLine");
       line.textContent = "Connecting...";
       try {
         const res = await fetch("/api/status");
         const data = await res.json();
-        line.innerHTML = `✓ Connected | Files: ${data.fileCount}`;
+        line.innerHTML = `✓ Connected | Files: ${data.fileCount || data.files?.length || "OK"}`;
         line.className = "badge badge-status";
-        document.getElementById("activeModelBadge").textContent = `Model: ${data.model}`;
+        if (data.provider) document.getElementById("providerSelect").value = data.provider;
+        await loadModels();
+        if (data.model) {
+          document.getElementById("modelSelect").value = data.model;
+        }
+        updateModelBadge();
         loadComponentFiles();
         loadFiles();
       } catch (err) {
@@ -1051,6 +1113,8 @@ Coordinate choices to check or replace the cannula, wait for choice selection, a
       formData.append("prompt", document.getElementById("prompt").value);
       formData.append("topK", document.getElementById("topK").value);
       formData.append("selectedPaths", JSON.stringify(selectedPaths()));
+      formData.append("provider", document.getElementById("providerSelect").value);
+      formData.append("model", document.getElementById("modelSelect").value);
 
       const image = document.getElementById("image").files[0];
       if (image) formData.append("image", image);
@@ -1238,14 +1302,16 @@ Coordinate choices to check or replace the cannula, wait for choice selection, a
       document.getElementById(editorId).value = "Applying AI edits...";
 
       try {
-        const res = await fetch("/api/edit-component", {
+        const res = await fetch("/generate-component-edit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             mode: m,
             prompt: promptVal,
             currentContent,
-            targetPath
+            targetPath,
+            provider: document.getElementById("providerSelect").value,
+            model: document.getElementById("modelSelect").value
           })
         });
 
@@ -1284,7 +1350,13 @@ Coordinate choices to check or replace the cannula, wait for choice selection, a
         const res = await fetch("/evaluate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: m, script, prompt: `Evaluate this ${m} component.` })
+          body: JSON.stringify({
+            mode: m,
+            script,
+            prompt: document.getElementById("prompt").value,
+            provider: document.getElementById("providerSelect").value,
+            model: document.getElementById("modelSelect").value
+          })
         });
         const data = await res.json();
         evalBox.textContent = JSON.stringify(data, null, 2);

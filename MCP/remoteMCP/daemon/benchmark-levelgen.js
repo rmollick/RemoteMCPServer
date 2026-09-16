@@ -25,6 +25,9 @@ const customPrompt = getArg("--prompt") || getArg("-p") ||
   "Emily is a 28-year-old patient admitted to RoomMedExam_base presenting with a fever. A nurse enters, washes hands, explains the examination, records vital signs (Temperature 39.1, HR 98, SpO2 96), and presents examination choices.";
 
 const targetRoom = getArg("--room", "RoomMedExam_base");
+const targetProvider = getArg("--provider") || getArg("-P") || process.env.MODEL_PROVIDER || "ollama";
+const defaultModel = targetProvider.toLowerCase() === "gemini" ? (process.env.GEMINI_MODEL || "gemini-3.6-flash") : (process.env.OLLAMA_MODEL || "gemma3:4b");
+const targetModel = getArg("--model") || getArg("-m") || defaultModel;
 const skipEval = hasFlag("--skip-eval");
 const noAutoStart = hasFlag("--no-auto-start");
 const targetBaseUrl = getArg("--base-url", BASE_URL);
@@ -108,6 +111,7 @@ async function runRevampedPipelineBenchmark() {
   console.log("=".repeat(75));
   console.log(`📡 Target Daemon:  ${targetBaseUrl}`);
   console.log(`🎯 Target Room:    ${targetRoom}`);
+  console.log(`🧠 Model Provider: ${targetProvider.toUpperCase()} (${targetModel})`);
   console.log(`📝 Test Prompt:    "${truncate(customPrompt, 65)}"`);
   console.log(`🔍 LLM Evaluation: ${skipEval ? "SKIPPED (--skip-eval)" : "ENABLED"}`);
   console.log("=".repeat(75) + "\n");
@@ -182,6 +186,8 @@ async function runRevampedPipelineBenchmark() {
       prompt: customPrompt,
       userPrompt: customPrompt,
       roomName: targetRoom,
+      provider: targetProvider,
+      model: targetModel,
       baseName: `Benchmark_${Date.now().toString().slice(-6)}`,
       strictConstraints: true,
       componentConfigs: {
@@ -326,7 +332,9 @@ async function runRevampedPipelineBenchmark() {
             mode: name,
             script: item.script,
             prompt: customPrompt,
-            roomName: targetRoom
+            roomName: targetRoom,
+            provider: targetProvider,
+            model: targetModel
           })
         });
         const evalLatency = performance.now() - tEval0;
